@@ -15,7 +15,7 @@ docs-live-in-the-vault convention - we work on them here):
 - `docs/high-level-requirements.md` - the spec
 - `docs/design.md` - approved RFC / detailed design (2026-07-25). Decisions recorded there are
   settled; read it before implementing, don't re-litigate.
-- `docs/CONTRACTS.md` - frozen cross-component interfaces; implementation must match them.
+- `docs/contracts.md` - frozen cross-component interfaces; implementation must match them.
 - `docs/execution-plan.md` - dependency waves and links to implementation issues.
 - `docs/rfc.md` - live status: goal, status, next step, open questions, dated log
 
@@ -34,6 +34,15 @@ and status. Do not create local task files. Pull requests must link their issue 
 
 Treat every change as production work: preserve the three invariants, keep changes reviewable,
 test behavior in proportion to risk, and leave `main` releasable.
+
+## File naming
+
+- Use lowercase kebab-case for project-owned Markdown documents and non-Python directories.
+- Use snake_case for Python modules and package directories.
+- Keep conventional tool-recognized names unchanged: `AGENTS.md`, `CLAUDE.md`, `README.md`,
+  `LICENSE`, `Dockerfile`, and similar platform-required names.
+- Before delivery, verify every new path follows this convention. Naming consistency is a
+  required acceptance check, not optional cleanup.
 
 ## Status: PLANNED, IMPLEMENTATION NOT STARTED
 
@@ -55,15 +64,17 @@ chat UI ──▶ FastAPI ──▶ agent loop ──▶ tools ──▶ provide
 - **Backend: FastAPI** (fixed by the requirements). Python.
 - **Provider adapter**: one interface, Uber the only implementation for MVP. Do NOT build
   Lyft/Grab stubs or a plugin registry before a second provider is real - YAGNI.
-- **Cloud**: LocalStack locally, mapping 1:1 onto real AWS services so it productionizes without
-  a rewrite. Pick AWS-native primitives over bespoke ones.
-- **One command up**: `docker compose up` must bring the whole system (API, UI, LocalStack, any
+- **Cloud**: Floci is the provisional local AWS emulator, pending the RB-100 compatibility spike.
+  The application and Terraform module use standard AWS interfaces so production uses real AWS
+  without a rewrite. Pick AWS-native primitives over bespoke ones.
+- **One command up**: `docker compose up` must bring the whole system (API, UI, Floci, any
   datastore) to a working state. If a change breaks that, it is not done.
 - **Locked by the approved design** (details + rationale in the design doc): Singapore market;
   mock Uber Guest Rides container (real API is partner-gated); LLM via OpenRouter
   (`z-ai/glm-4.5-air` primary, `minimax/minimax-m2` fallback) behind an OpenAI-compatible client;
-  SG OneMap geocoding behind a `Geocoder` interface; DynamoDB on LocalStack; Terraform + tflocal
-  for ALL infra (no shell-script init); the LLM never sees guest PII; no scheduled rides in MVP.
+  SG OneMap geocoding behind a `Geocoder` interface; DynamoDB on pinned Floci if RB-100 passes;
+  standard Terraform for ALL infra (no wrapper or shell-script init); the LLM never sees guest
+  PII; no scheduled rides in MVP.
 
 ## Three invariants that must not be violated
 
@@ -85,9 +96,9 @@ chat UI ──▶ FastAPI ──▶ agent loop ──▶ tools ──▶ provide
 
 ## Working conventions
 
-- **Requirements win over cleverness.** FastAPI, containerized-one-command, LocalStack, and the
-  three invariants above are non-negotiable; anything else is open for the simplest thing that
-  works.
+- **Requirements win over cleverness.** FastAPI, containerized-one-command, the validated local
+  AWS emulator, and the three invariants above are non-negotiable; anything else is open for the
+  simplest thing that works.
 - **Secrets**: never in code, chat, or committed files. Local dev reads a gitignored `.env`
   (commit a `.env.example` with key names and empty values only).
 - **Never call the real Uber API from tests** - stub the adapter. A test that books a real ride
