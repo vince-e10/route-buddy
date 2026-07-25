@@ -17,4 +17,4 @@ Route Buddy - MVP
 - Backend:
   - Must use FastAPI service
 - The whole system must be containerized, up and running with 1 command
-- Use localstack or similar stack that can be easily productionize to AWS stack
+- Use LocalStack or a similar stack that can be productionized easily on AWS

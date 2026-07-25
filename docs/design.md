@@ -1,6 +1,6 @@
 # Route Buddy - RFC & Detailed Design
 
-_Status:_ Approved (design), implementation not started
+_Status:_ Approved (design), implementation not started; Floci amendment provisional pending RB-100
 _Date:_ 2026-07-25
 _Author:_ Claude (chief-architect session), decisions by Vincent
 _Repository:_ [vince-e10/route-buddy](https://github.com/vince-e10/route-buddy)
@@ -8,7 +8,7 @@ _Requirements:_ `docs/high-level-requirements.md` · Live status: `docs/rfc.md` 
 
 ## 1. Summary
 
-Route Buddy is an AI agent that books ride-hailing trips end to end: discover options, compare prices, book, track, cancel. MVP targets the Singapore market with Uber as the (mocked) provider, a FastAPI backend, a minimal web chat UI, cheap OpenRouter-hosted LLMs, and a LocalStack-based AWS stack that productionizes without a rewrite. Three invariants are structurally enforced in code, never by prompts: a confirmation gate on every real-world action, an append-only action log of every attempt, and grounded answers only.
+Route Buddy is an AI agent that books ride-hailing trips end to end: discover options, compare prices, book, track, cancel. MVP targets the Singapore market with Uber as the (mocked) provider, a FastAPI backend, a minimal web chat UI, cheap OpenRouter-hosted LLMs, and an AWS-shaped local stack that productionizes without a rewrite. Floci is the provisional local emulator, gated by the RB-100 compatibility spike. Three invariants are structurally enforced in code, never by prompts: a confirmation gate on every real-world action, an append-only action log of every attempt, and grounded answers only.
 
 `docker compose up` brings the whole system to a working state - that is the definition of done for every phase.
 
@@ -18,7 +18,7 @@ Route Buddy is an AI agent that books ride-hailing trips end to end: discover op
 - Multi-turn chat: search places, quote rides, book (with confirm), live-track, cancel (with confirm)
 - The three invariants enforced structurally (see section 8)
 - Every external dependency behind a swappable seam (provider, geocoder, LLM)
-- One-command bring-up; zero cloud credentials beyond OpenRouter key, LocalStack free token, OneMap token
+- One-command bring-up; no local AWS account or emulator token
 - Infrastructure as code from day 1 (Terraform), same definitions productionize to AWS
 - Highest-security posture within MVP scope: no PII/secret leakage (section 9)
 
@@ -62,13 +62,26 @@ stateDiagram-v2
     completed --> [*]
 ```
 
-### 3.2 LocalStack (2026.03.0+)
+### 3.2 Local AWS emulation
 
-- No more anonymous use: requires a free-account `LOCALSTACK_AUTH_TOKEN` env var
-- **Persistence is paid-only**: all emulated state wipes on restart. Consequence: infra must be re-applied idempotently at every startup, and local data loss on restart is an accepted MVP limitation (prod DynamoDB is durable)
-- Free (Hobby) tier: DynamoDB, SQS, SNS, S3, EventBridge, Lambda, API Gateway. **Paid-only: RDS/Postgres, Secrets Manager** - which rules out Postgres locally and defers Secrets Manager to prod
-- Endpoint switching is now SDK-native: set `AWS_ENDPOINT_URL=http://localstack:4566` locally, unset in prod; zero code branching
-- Init runs against `/_localstack/health`-gated readiness; Terraform works via the `tflocal` wrapper
+LocalStack was the original choice. Its current licensing requires an account token, the Hobby
+tier has no local state persistence, and commercial use requires a paid plan. That adds local and
+CI friction before Route Buddy needs any service beyond DynamoDB.
+
+**Provisional selection: `floci/floci:1.5.33`, gated by RB-100.**
+
+- No account or auth token; standard AWS SDK, CLI, and Terraform endpoint configuration
+- Same port `4566`; local endpoint is `AWS_ENDPOINT_URL=http://floci:4566`, unset in production
+- Documented DynamoDB support includes GSI/LSI, Query, condition expressions, transactions, TTL,
+  and compatibility tests against Terraform AWS provider v6
+- Local development uses persistent Floci data plus persistent local Terraform state; CI uses
+  memory mode and disposable Terraform state
+- Plain Terraform AWS provider endpoint blocks replace `tflocal`; production modules remain
+  emulator-neutral
+
+This is not treated as full AWS fidelity. RB-100 must prove Route Buddy's exact Terraform
+lifecycle, pagination, conditional-write concurrency, TTL configuration, and restart behavior
+before RB-101 starts. Failure falls back to official DynamoDB Local for the MVP.
 
 ### 3.3 OpenRouter and cheap tool-calling models
 
@@ -151,7 +164,7 @@ Design consequences:
 | Option | Pros | Cons | Verdict |
 |---|---|---|---|
 | Claude API | Best tool-use discipline | Highest cost | Escalation path only |
-| AWS Bedrock | Most AWS-native | LocalStack cannot emulate inference; local dev still hits cloud + needs AWS creds | No |
+| AWS Bedrock | Most AWS-native | Local emulators do not provide real inference; local dev still hits cloud + needs AWS creds | No |
 | **OpenRouter, Chinese models** | Cheapest credible tool calling; model swap = config; automatic fallback | Malformed-JSON risk, provider variance | **Selected** (owner directive; mitigations: Response Healing, `require_parameters`, Pydantic validation, structural gate) |
 | Local (Ollama) | Free, offline | Weak tool discipline vs the no-hallucination requirement | No |
 
@@ -159,11 +172,19 @@ Design consequences:
 
 | Option | Pros | Cons | Verdict |
 |---|---|---|---|
-| **DynamoDB** | Free in LocalStack; append-only log fits PutItem; TTL native; prod = same code | NoSQL modeling discipline needed | **Selected** |
-| Postgres (RDS) | Rich queries | RDS is LocalStack-paid-only; second datastore for no MVP need | No |
+| **DynamoDB** | Supported by Floci; append-only log fits PutItem; TTL native; prod = same code | NoSQL modeling discipline needed | **Selected** |
+| Postgres (RDS) | Rich queries | Second datastore for no MVP need | No |
 | SQLite | Trivial | Not an AWS service; fails productionize-without-rewrite | No |
 
-### 4.4 Status updates, UI transport, geocoding, queue, IaC
+### 4.4 Local AWS emulator
+
+| Option | Pros | Cons | Verdict |
+|---|---|---|---|
+| **Floci 1.5.33** | No token; persistent storage; port 4566; Terraform and required DynamoDB behaviors covered by project tests | Newer, fast-moving emulator; exact semantics still need proof | **Provisional, gated by RB-100** |
+| DynamoDB Local | Official AWS image; narrowest dependency | DynamoDB only; documented behavior differences; Terraform workflow still needs verification | Fallback if RB-100 fails |
+| LocalStack | Mature ecosystem and broad tooling | Token and licensing friction; Hobby tier has no local persistence | Not selected |
+
+### 4.5 Status updates, UI transport, geocoding, queue, IaC
 
 | Decision | Selected | Over | Why |
 |---|---|---|---|
@@ -171,7 +192,7 @@ Design consequences:
 | UI transport | WebSocket | SSE / polling | Chat needs client-to-server anyway; status push rides the same socket; owner suggestion |
 | Geocoding | OneMap behind `Geocoder` seam | Google/Mapbox | Free, official SG source; token registered (see 12 - refresh flow is an implementation item) |
 | Queue | None in MVP; SQS in prod path | SQS now | Single consumer, single user; queue is hardening, not need |
-| IaC | **Terraform + tflocal** | Shell scripts (not IaC, fails requirement); CDK (cdklocal is LocalStack-paid) | Industry standard, mature free LocalStack support, one definition for local + prod |
+| IaC | **Terraform + standard AWS provider** | Shell scripts (not IaC, fails requirement); emulator wrapper CLIs | One definition for local + prod; endpoint changes through provider configuration only |
 
 ## 5. Architecture
 
@@ -180,7 +201,7 @@ Design consequences:
 ┌─────────────────────────────────────────────────────────────────┐
 │  Browser ◀──(WebSocket: chat + confirms + live status)──┐       │
 │  (static chat page served by api)                       ▼       │
-│   ┌─────────┐  tflocal apply   ┌──────────────────────────────┐ │
+│   ┌─────────┐ terraform apply  ┌──────────────────────────────┐ │
 │   │  iac    │────────────────▶ │          api (FastAPI)       │ │
 │   │ (init,  │                  │ agent loop · tools · gate    │ │
 │   │ exits)  │                  │ action log · sessions · WS   │ │
@@ -188,7 +209,7 @@ Design consequences:
 │        │ creates tables            │           ▲                │
 │        ▼                           ▼           │ webhook        │
 │   ┌────────────┐             ┌────────────┐    │ (status_changed│
-│   │ localstack │◀────────────│ mock-uber  │────┘  + shared     │
+│   │   floci    │◀────────────│ mock-uber  │────┘  + shared     │
 │   │ DynamoDB   │  (no - api  │ (FastAPI)  │       secret)      │
 │   │ 4 tables   │  only)      │ Guest Rides│                    │
 │   └────────────┘             │ + driver   │                    │
@@ -200,7 +221,7 @@ Design consequences:
              (glm-4.5-air → minimax-m2)  (geocoding, token)
 ```
 
-Containers: **api** (orchestrator + static UI), **mock-uber** (provider simulation), **localstack** (DynamoDB), **iac** (runs `tflocal apply`, exits; api starts on `service_completed_successfully`). Only api publishes a host port; everything else is compose-network-internal. Startup ordering: localstack healthcheck (`/_localstack/health`) -> iac applies -> api starts -> mock-uber independent.
+Containers: **api** (orchestrator + static UI), **mock-uber** (provider simulation), **floci** (DynamoDB), **iac** (runs `terraform apply`, exits; api starts on `service_completed_successfully`). Only api publishes a host port; everything else is compose-network-internal. Startup ordering: floci healthcheck (`/_localstack/health` compatibility endpoint) -> iac applies -> api starts -> mock-uber independent.
 
 ## 6. Component design
 
@@ -299,7 +320,9 @@ FastAPI service implementing the Guest Rides surface with verbatim paths, field 
 ### 6.6 Infrastructure as code
 
 - `infra/modules/data`: DynamoDB tables, GSIs, TTLs - the one source of truth for infrastructure
-- Local: `iac` container runs `tflocal apply` at startup; **tfstate is ephemeral inside the container** - every `docker compose up` is a clean apply against a fresh LocalStack, so state never drifts from LocalStack's wiped reality
+- Local: `iac` runs plain `terraform apply` against Floci. Named volumes persist both Floci data
+  and local Terraform state so restart/re-apply is a no-op and local audit data survives.
+- CI: Floci runs in memory mode; Terraform state and emulator data are disposable after the job.
 - Prod: same module, prod tfvars; prod-only modules (ECS/Fargate, ALB + TLS, VPC/SGs, least-privilege IAM task roles, Secrets Manager, CloudWatch) added at productionization; **remote encrypted state backend with locking** (S3 + lock table); Terraform manages Secrets Manager resource shells only - values injected out-of-band so no secret lands in tfstate
 
 ### 6.7 Frontend - static chat page
@@ -338,16 +361,19 @@ class Geocoder(Protocol):
 
 | Surface | Mitigation |
 |---|---|
-| Secrets | Gitignored `.env` only (OpenRouter key, LocalStack token, webhook secret, OneMap email/password); committed `.env.example` with names + empty values; `.dockerignore` excludes `.env`; never in code, git, images, logs, model context, or error messages. Prod: Secrets Manager + IAM task roles, no long-lived keys |
+| Secrets | Gitignored `.env` only (OpenRouter key, webhook secret, OneMap email/password); committed `.env.example` with names + empty values; `.dockerignore` excludes `.env`; never in code, git, images, logs, model context, or error messages. Prod: Secrets Manager + IAM task roles, no long-lived keys |
 | PII to LLM | **The model never sees PII.** Guest name/phone attached server-side only inside confirm-execution; the model handles places, coordinates, quotes, trip ids. OpenRouter provider routing denies data-retention/training providers |
 | Logs | Action log = access-controlled audit (full fidelity, no public endpoint, IAM-only in prod). App logs = structured JSON through a redaction filter: regex list (phone/email patterns) + exact-match masking of loaded secret env values. Tokens travel in POST bodies, never URLs |
-| Network | Only api publishes a host port; mock-uber/localstack compose-internal. Webhook: shared-secret header, constant-time compare (prod: real signature verification) |
+| Network | Only api publishes a host port; mock-uber/floci compose-internal. Webhook: shared-secret header, constant-time compare (prod: real signature verification) |
 | App | Pydantic at every trust boundary (user input, model tool calls, webhooks, confirms); token properties per 6.2; rate limiting on chat + confirm; same-origin CORS; security headers on static page |
 | Prompt injection | External text (user, OneMap names, provider data) is data, never instructions; real-world actions sit behind the human confirm gate, so injection cannot book or cancel - prompt hardening is defense-in-depth only |
 | Supply chain | Pinned deps (lock file), `python:3.12-slim`, non-root containers, no secrets in layers; pip-audit + trivy in CI (prod path) |
 | Data at rest | TTLs bound PII retention (sessions, pending_actions); DynamoDB encryption at rest in prod; action-log retention policy = production decision (open question) |
 
-**MVP vs prod honesty** - built now: everything above except Secrets Manager (LocalStack-paid; `.env` locally), TLS (ALB concern), IAM enforcement (LocalStack ignores authz), infra-level WAF/rate limits, scanning CI. Those are documented prod-path Terraform items, not faked locally.
+**MVP vs prod honesty** - built now: everything above except Secrets Manager (`.env` locally),
+TLS (ALB concern), real IAM enforcement, infra-level WAF/rate limits, and scanning CI. A local
+emulator does not prove AWS durability, scaling, or authorization. Those are documented prod-path
+Terraform items, not faked locally.
 
 ## 10. Testing strategy
 
@@ -359,7 +385,8 @@ class Geocoder(Protocol):
 
 ## 11. Known MVP limitations (accepted, explicit)
 
-1. **Local data wipes on restart** - LocalStack free tier has no persistence; tables re-created by `iac` on every up. The action log is therefore durable only in prod (real DynamoDB). Accepted for local dev
+1. Floci is a development emulator, not proof of real AWS durability, scaling, IAM, or service
+   limits. Production validation still runs against AWS.
 2. Webhook auth is a shared secret, not signatures - prod item
 3. Single region/market (SG), single user, English-first prompts
 4. Model may occasionally produce a malformed tool call despite mitigations - the failure mode is a logged refusal and a re-ask, never an unintended action (the gate guarantees this)
@@ -368,6 +395,7 @@ class Geocoder(Protocol):
 
 | Item | Owner | Note |
 |---|---|---|
+| Floci compatibility gate | RB-100 | Blocks RB-101. Pass only on exact Terraform, conditional-write, pagination, TTL, persistence, and CI checks against `floci/floci:1.5.33`; otherwise use DynamoDB Local |
 | OneMap token refresh | Implementor | Token registered (Vincent); expires ~3 days. Implementor builds the refresh flow inside `OneMapGeocoder`: `POST /api/auth/post/getToken` with `.env` credentials, cache with expiry, re-fetch on expiry or `401` (contract in 3.4). Not a design blocker |
 | Action-log retention policy | Production decision | Audit-vs-privacy trade-off; revisit at productionization |
 | Uber partner approval | Vincent/business | Required before real-provider swap; timeline unknown |
@@ -379,7 +407,7 @@ Each phase ends with `docker compose up` green - a broken compose is not done.
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
-| 0. Skeleton | compose + localstack + `iac` (Terraform tables) + healthchecks; api and mock-uber hello endpoints; `.env.example` | One command up; tables exist; health endpoints green |
+| 0. Skeleton | compose + validated local DynamoDB emulator + `iac` (Terraform tables) + healthchecks; api and mock-uber hello endpoints; `.env.example` | One command up; tables exist; health endpoints green |
 | 1. Provider | mock-uber full contract + simulator + webhooks + scenario knobs; `UberAdapter`; deterministic mode | Adapter integration tests pass; full lifecycle observable |
 | 2. Data + tools | Storage repositories (4 tables), action-log discipline, `OneMapGeocoder`, read tools | Read tools return grounded data; every attempt logged |
 | 3. Agent + gate | LLM client (OpenRouter), agent loop, write tools + confirmation gate, WS protocol, chat UI | End-to-end: search -> quote -> confirm -> book -> track -> cancel in browser; gate tests pass |
@@ -390,7 +418,7 @@ Repo layout (target):
 ```
 route-buddy/
   docker-compose.yml        .env.example        AGENTS.md  CLAUDE.md
-  docs/       high-level-requirements.md, design.md (this file), rfc.md
+  docs/       high-level-requirements.md, design.md, contracts.md, execution-plan.md, rfc.md
   api/        Dockerfile, app/{main,agent/,tools/,gate,providers/,geocode/,storage/,logging}, static/index.html, tests/
   mock-uber/  Dockerfile, app/{main,sim,models}, tests/
   infra/      modules/data/*.tf, local/main.tf
@@ -399,6 +427,7 @@ route-buddy/
 ## Appendix A - key research citations
 
 - Uber: [Guest Rides intro](https://developer.uber.com/docs/guest-rides/introduction) · [Estimates](https://developer.uber.com/docs/guest-rides/references/api/v1/guest-trips-estimates-post) · [Create trip](https://developer.uber.com/docs/guest-rides/references/api/v1/guest-trips-post) · [Status webhook](https://developer.uber.com/docs/guest-rides/references/api/webhooks/status-changed) · [Dispatch & cancellation](https://developer.uber.com/docs/guest-rides/guest-ride-api-build-guide/dispatch-and-cancellation) · [Sandbox](https://developer.uber.com/docs/guest-rides/guides/sandbox)
-- LocalStack: [2026.03.0 release](https://blog.localstack.cloud/localstack-for-aws-release-2026-03-0/) · [Pricing](https://www.localstack.cloud/pricing) · [Persistence](https://docs.localstack.cloud/aws/developer-tools/snapshots/persistence/) · [Init hooks](https://docs.localstack.cloud/aws/capabilities/config/initialization-hooks/)
+- Floci: [repository](https://github.com/floci-io/floci) · [DynamoDB](https://floci.io/floci/services/dynamodb/) · [storage modes](https://floci.io/floci/configuration/storage/) · [LocalStack migration](https://floci.io/floci/getting-started/migrate-from-localstack/) · [compatibility tests](https://github.com/floci-io/floci/tree/main/compatibility-tests)
+- Superseded LocalStack basis: [2026.03.0 release](https://blog.localstack.cloud/localstack-for-aws-release-2026-03-0/) · [plans](https://docs.localstack.cloud/aws/licensing/) · [persistence](https://docs.localstack.cloud/aws/developer-tools/snapshots/persistence/)
 - OneMap: [Search API docs](https://www.onemap.gov.sg/apidocs/search) · [Token management](https://www.onemap.gov.sg/apidocs/docs/tokenmanagement) (contract in 3.4 verified by live calls 2026-07-25, since the docs site is a JS app that cannot be fetched as text)
 - OpenRouter: [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection) · [Structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs) · [Response Healing](https://openrouter.ai/docs/guides/features/plugins/response-healing) · [Exacto](https://openrouter.ai/blog/announcements/provider-variance-introducing-exacto/) · [GLM-4.5-Air](https://openrouter.ai/z-ai/glm-4.5-air) · [MiniMax M2](https://openrouter.ai/minimax/minimax-m2) · [Rate limits](https://openrouter.ai/docs/api_reference/limits)

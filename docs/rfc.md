@@ -1,24 +1,33 @@
 # Route Buddy - Live RFC
 
 _Repos touched:_ [vince-e10/route-buddy](https://github.com/vince-e10/route-buddy)
-_Issues:_ [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2) through
+_Issues:_ [RB-100 #10](https://github.com/vince-e10/route-buddy/issues/10), plus
+[RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2) through
 [RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8)
 _Docs:_ all project docs live in this `docs/` folder alongside the code (owner decision
 2026-07-25, overriding the docs-in-vault convention): `high-level-requirements.md` (spec),
-`design.md` (approved RFC), this file (live status).
+`design.md` (approved RFC), `contracts.md` (normative interfaces), `execution-plan.md` (delivery),
+this file (live status).
 
 ## Current State
 _Last updated: 2026-07-25_
 
-**Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, LocalStack->AWS, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
-**Status:** Repository initialized and [PR #1](https://github.com/vince-e10/route-buddy/pull/1) merged. Design and contracts are approved. All seven implementation tasks are tracked as GitHub issues with acceptance criteria and dependencies. No application code yet.
-**Next step:** Implement [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2), verify the compose skeleton, then continue through waves 2-4.
+**Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, DynamoDB on an AWS-compatible local emulator, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
+**Status:** Repository initialized; planning PRs [#1](https://github.com/vince-e10/route-buddy/pull/1) and [#9](https://github.com/vince-e10/route-buddy/pull/9) merged. Floci 1.5.33 is the provisional local emulator, pending the RB-100 compatibility gate. Eight tracked issues cover the gate and implementation. No application code yet.
+**Next step:** Complete [RB-100 #10](https://github.com/vince-e10/route-buddy/issues/10), merge its pass/fail decision, then implement [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2).
 **Open questions:**
+- Floci compatibility - RB-100 blocks implementation; fallback is DynamoDB Local
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
 - Uber partner approval timeline - business, needed only for real-provider swap
 
 ## Log
+
+### 2026-07-25 - Floci compatibility gate added
+- Selected `floci/floci:1.5.33` provisionally to remove LocalStack account-token, licensing, persistence, and CI-secret friction.
+- Added [RB-100 #10](https://github.com/vince-e10/route-buddy/issues/10) as a hard gate before RB-101. It tests the exact Terraform lifecycle, DynamoDB condition expressions, pagination, TTL configuration, persistent restart, and memory-only CI workflow.
+- Defined the failure path: use official DynamoDB Local for the MVP and update the decision records before implementation.
+- Standardized project-owned document names on lowercase kebab-case and renamed `docs/CONTRACTS.md` to `docs/contracts.md`. Conventional tool-recognized names remain unchanged.
 
 ### 2026-07-25 - Implementation tracking moved to GitHub Issues
 - Migrated RB-101 through RB-107 into [GitHub Issues](https://github.com/vince-e10/route-buddy/issues).
@@ -31,7 +40,7 @@ _Last updated: 2026-07-25_
 
 ### 2026-07-25 - Execution plan + issue set written
 - Broke the design into 7 agent-delegatable issues in 4 waves: RB-101 foundation -> RB-102/103/104 (mock-uber, storage, adapters, parallel) -> RB-105/106 (agent core + gate, WS + UI, parallel) -> RB-107 (live integration, e2e, security verification, README).
-- All cross-issue interfaces frozen in `docs/CONTRACTS.md` (normative): models, protocols, tool schemas, WS protocol, mock-uber response shapes, table schemas, env vars, file ownership map.
+- All cross-issue interfaces frozen in `docs/contracts.md` (normative): models, protocols, tool schemas, WS protocol, mock-uber response shapes, table schemas, env vars, file ownership map.
 - Parallelism inside a wave is safe by disjoint file ownership; RB-105/RB-106 decoupled via an `app.registry` seam built in wave 1.
 - Plan-review (reviewer-pragmatic) found 6 issues, all fixed: registry seam replacing a deps.py collision, two literal spec bugs in RB-105 (datetime->epoch, contradictory webhook driver instruction), /confirm response shape, rate-limit wording, ownership-map annotation, CORS verification line; plus a poll-reconciliation edge case fixed via trip_repo.put.
 

@@ -7,18 +7,24 @@ fields/endpoints/env vars without owner approval.
 
 Design rationale lives in `docs/design.md`; this file is the mechanical contract.
 
+The Floci configuration below is provisional until the RB-100 compatibility spike passes.
+RB-101 must not start before that decision gate closes.
+
 ## 1. Services and ports
 
 | Service | Container | Port | Published to host | Notes |
 |---|---|---|---|---|
 | api | `api` | 8000 | yes (`8000:8000`) | FastAPI orchestrator + static chat UI |
 | mock-uber | `mock-uber` | 8001 | no | Guest Rides mock + driver simulator |
-| localstack | `localstack` | 4566 | no | DynamoDB |
-| iac | `iac` | - | no | Runs Terraform apply against localstack, exits 0 |
+| floci | `floci` | 4566 | no | Provisional DynamoDB emulator, pinned to `floci/floci:1.5.33` |
+| iac | `iac` | - | no | Runs Terraform apply against Floci, exits 0 |
 
-Startup order: `localstack` (healthcheck `curl -sf http://localhost:4566/_localstack/health`)
--> `iac` (`depends_on: localstack: condition: service_healthy`; runs apply, exits)
+Startup order: `floci` (healthcheck `curl -sf http://localhost:4566/_localstack/health`)
+-> `iac` (`depends_on: floci: condition: service_healthy`; runs apply, exits)
 -> `api` (`depends_on: iac: condition: service_completed_successfully`, plus `mock-uber: condition: service_started`).
+
+Local development mounts `floci-data:/app/data` and persists Terraform state in a separate named
+volume. CI uses `FLOCI_STORAGE_MODE=memory` and removes its volumes after the job.
 
 ## 2. Environment variables (.env.example, exact names)
 
@@ -30,9 +36,10 @@ OPENROUTER_MODEL_PRIMARY=z-ai/glm-4.5-air
 OPENROUTER_MODEL_FALLBACK=minimax/minimax-m2
 LLM_MODE=openrouter            # openrouter | fake (fake = deterministic scripted LLM, no network)
 
-# --- AWS / LocalStack ---
-LOCALSTACK_AUTH_TOKEN=
-AWS_ENDPOINT_URL=http://localstack:4566
+# --- AWS / Floci ---
+FLOCI_STORAGE_MODE=persistent  # CI overrides to memory
+FLOCI_STORAGE_PERSISTENT_PATH=/app/data
+AWS_ENDPOINT_URL=http://floci:4566
 AWS_ACCESS_KEY_ID=test
 AWS_SECRET_ACCESS_KEY=test
 AWS_DEFAULT_REGION=ap-southeast-1
@@ -60,7 +67,7 @@ WEBHOOK_TARGET_URL=http://api:8000/webhooks/uber
 ```
 
 Secrets (never logged, never in images, never in model context): `OPENROUTER_API_KEY`,
-`LOCALSTACK_AUTH_TOKEN`, `WEBHOOK_SHARED_SECRET`, `ONEMAP_EMAIL`, `ONEMAP_PASSWORD`.
+`WEBHOOK_SHARED_SECRET`, `ONEMAP_EMAIL`, `ONEMAP_PASSWORD`.
 
 ## 3. DynamoDB tables (created by Terraform, module `infra/modules/data`)
 
@@ -443,7 +450,7 @@ appear in `executed` payloads (the action log is the access-controlled audit tra
 
 | Path | Owner |
 |---|---|
-| `docker-compose.yml`, `.env.example`, `infra/**`, `api/Dockerfile`, `api/requirements.txt`, `api/.dockerignore`, `api/app/{main,config,models,registry,logging_setup}.py`, `api/app/providers/base.py`, `api/app/geocode/base.py`, `api/app/ws/publisher.py`, `api/app/routers/*` (initial EMPTY stubs only; RB-105 fills confirm.py + webhooks.py, RB-106 fills ws.py - see those rows), `mock-uber/Dockerfile`, `mock-uber/requirements.txt`, `mock-uber/.dockerignore`, `api/tests/test_health.py`, `api/tests/test_logging.py`, `api/tests/test_registry.py` | [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2) |
+| `docker-compose.yml`, `.env.example`, `.github/workflows/**`, `infra/**`, `api/Dockerfile`, `api/requirements.txt`, `api/.dockerignore`, `api/app/{main,config,models,registry,logging_setup}.py`, `api/app/providers/base.py`, `api/app/geocode/base.py`, `api/app/ws/publisher.py`, `api/app/routers/*` (initial EMPTY stubs only; RB-105 fills confirm.py + webhooks.py, RB-106 fills ws.py - see those rows), `mock-uber/Dockerfile`, `mock-uber/requirements.txt`, `mock-uber/.dockerignore`, `api/tests/test_health.py`, `api/tests/test_logging.py`, `api/tests/test_registry.py` | [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2) |
 | `mock-uber/app/**`, `mock-uber/tests/**` | [RB-102 #3](https://github.com/vince-e10/route-buddy/issues/3) |
 | `api/app/storage/**`, `api/tests/storage/**` | [RB-103 #4](https://github.com/vince-e10/route-buddy/issues/4) |
 | `api/app/providers/uber.py`, `api/app/geocode/{onemap,stub}.py`, `api/tests/providers/**`, `api/tests/geocode/**` | [RB-104 #5](https://github.com/vince-e10/route-buddy/issues/5) |
