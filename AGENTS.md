@@ -64,7 +64,8 @@ chat UI ──▶ FastAPI ──▶ agent loop ──▶ tools ──▶ provide
 - **Backend: FastAPI** (fixed by the requirements). Python.
 - **Provider adapter**: one interface, Uber the only implementation for MVP. Do NOT build
   Lyft/Grab stubs or a plugin registry before a second provider is real - YAGNI.
-- **Cloud**: Floci is the provisional local AWS emulator, pending the RB-100 compatibility spike.
+- **Cloud**: Floci 1.5.33 is the validated local AWS emulator
+  ([RB-100 evidence](https://github.com/vince-e10/route-buddy/issues/10#issuecomment-5078441200)).
   The application and Terraform module use standard AWS interfaces so production uses real AWS
   without a rewrite. Pick AWS-native primitives over bespoke ones.
 - **One command up**: `docker compose up` must bring the whole system (API, UI, Floci, any
@@ -72,9 +73,9 @@ chat UI ──▶ FastAPI ──▶ agent loop ──▶ tools ──▶ provide
 - **Locked by the approved design** (details + rationale in the design doc): Singapore market;
   mock Uber Guest Rides container (real API is partner-gated); LLM via OpenRouter
   (`z-ai/glm-4.5-air` primary, `minimax/minimax-m2` fallback) behind an OpenAI-compatible client;
-  SG OneMap geocoding behind a `Geocoder` interface; DynamoDB on pinned Floci if RB-100 passes;
-  standard Terraform for ALL infra (no wrapper or shell-script init); the LLM never sees guest
-  PII; no scheduled rides in MVP.
+  SG OneMap geocoding behind a `Geocoder` interface; DynamoDB on pinned Floci 1.5.33; standard
+  Terraform for ALL infra (no wrapper or shell-script init); the LLM never sees guest PII; no
+  scheduled rides in MVP.
 
 ## Three invariants that must not be violated
 

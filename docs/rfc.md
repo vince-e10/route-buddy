@@ -13,15 +13,24 @@ this file (live status).
 _Last updated: 2026-07-25_
 
 **Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, DynamoDB on an AWS-compatible local emulator, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
-**Status:** Repository initialized; planning PRs [#1](https://github.com/vince-e10/route-buddy/pull/1) and [#9](https://github.com/vince-e10/route-buddy/pull/9) merged. Floci 1.5.33 is the provisional local emulator, pending the RB-100 compatibility gate. Eight tracked issues cover the gate and implementation. No application code yet.
-**Next step:** Complete [RB-100 #10](https://github.com/vince-e10/route-buddy/issues/10), merge its pass/fail decision, then implement [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2).
+**Status:** Repository initialized; planning PRs [#1](https://github.com/vince-e10/route-buddy/pull/1) and [#9](https://github.com/vince-e10/route-buddy/pull/9) merged. RB-100 passed, validating pinned Floci 1.5.33 for local DynamoDB and Terraform; the decision PR is pending merge. Eight tracked issues cover the gate and implementation. No application code yet.
+**Next step:** Merge the RB-100 decision PR, then implement [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2).
 **Open questions:**
-- Floci compatibility - RB-100 blocks implementation; fallback is DynamoDB Local
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
 - Uber partner approval timeline - business, needed only for real-provider swap
 
 ## Log
+
+### 2026-07-25 - Floci compatibility gate passed
+- [RB-100](https://github.com/vince-e10/route-buddy/issues/10) passed against `floci/floci:1.5.33`
+  (digest `sha256:d2ecc8035822b23b8587a56eab15edd825f41d3fb80d93e8e66680410beddc08`).
+- The [evidence](https://github.com/vince-e10/route-buddy/issues/10#issuecomment-5078441200)
+  records Terraform 1.9.8 with AWS provider 6.56.0, exact schemas and TTLs, GSI pagination,
+  Decimal round trips, conditional-write concurrency, duplicate-event rejection, persistent
+  restart/recreation with a no-op re-apply, destroy, and clean memory-mode recreation.
+- Decision: use pinned Floci 1.5.33 for local development and CI. Keep the production module
+  emulator-neutral and validate it against real AWS before production.
 
 ### 2026-07-25 - Floci compatibility gate added
 - Selected `floci/floci:1.5.33` provisionally to remove LocalStack account-token, licensing, persistence, and CI-secret friction.

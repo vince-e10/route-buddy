@@ -1,6 +1,6 @@
 # Route Buddy - RFC & Detailed Design
 
-_Status:_ Approved (design), implementation not started; Floci amendment provisional pending RB-100
+_Status:_ Approved (design), implementation not started; Floci validated by RB-100
 _Date:_ 2026-07-25
 _Author:_ Claude (chief-architect session), decisions by Vincent
 _Repository:_ [vince-e10/route-buddy](https://github.com/vince-e10/route-buddy)
@@ -8,7 +8,7 @@ _Requirements:_ `docs/high-level-requirements.md` · Live status: `docs/rfc.md` 
 
 ## 1. Summary
 
-Route Buddy is an AI agent that books ride-hailing trips end to end: discover options, compare prices, book, track, cancel. MVP targets the Singapore market with Uber as the (mocked) provider, a FastAPI backend, a minimal web chat UI, cheap OpenRouter-hosted LLMs, and an AWS-shaped local stack that productionizes without a rewrite. Floci is the provisional local emulator, gated by the RB-100 compatibility spike. Three invariants are structurally enforced in code, never by prompts: a confirmation gate on every real-world action, an append-only action log of every attempt, and grounded answers only.
+Route Buddy is an AI agent that books ride-hailing trips end to end: discover options, compare prices, book, track, cancel. MVP targets the Singapore market with Uber as the (mocked) provider, a FastAPI backend, a minimal web chat UI, cheap OpenRouter-hosted LLMs, and an AWS-shaped local stack that productionizes without a rewrite. Floci 1.5.33 is the validated local emulator. Three invariants are structurally enforced in code, never by prompts: a confirmation gate on every real-world action, an append-only action log of every attempt, and grounded answers only.
 
 `docker compose up` brings the whole system to a working state - that is the definition of done for every phase.
 
@@ -68,7 +68,7 @@ LocalStack was the original choice. Its current licensing requires an account to
 tier has no local state persistence, and commercial use requires a paid plan. That adds local and
 CI friction before Route Buddy needs any service beyond DynamoDB.
 
-**Provisional selection: `floci/floci:1.5.33`, gated by RB-100.**
+**Validated selection: `floci/floci:1.5.33`.**
 
 - No account or auth token; standard AWS SDK, CLI, and Terraform endpoint configuration
 - Same port `4566`; local endpoint is `AWS_ENDPOINT_URL=http://floci:4566`, unset in production
@@ -79,9 +79,13 @@ CI friction before Route Buddy needs any service beyond DynamoDB.
 - Plain Terraform AWS provider endpoint blocks replace `tflocal`; production modules remain
   emulator-neutral
 
-This is not treated as full AWS fidelity. RB-100 must prove Route Buddy's exact Terraform
-lifecycle, pagination, conditional-write concurrency, TTL configuration, and restart behavior
-before RB-101 starts. Failure falls back to official DynamoDB Local for the MVP.
+[RB-100 passed](https://github.com/vince-e10/route-buddy/issues/10#issuecomment-5078441200)
+the exact Terraform lifecycle, pagination, conditional-write concurrency, TTL configuration,
+persistent restart/recreation, and memory-mode checks against image digest
+`sha256:d2ecc8035822b23b8587a56eab15edd825f41d3fb80d93e8e66680410beddc08`.
+The spike used Terraform 1.9.8, AWS provider 6.56.0 under the `~> 6.0` constraint, and boto3
+1.40.67. Floci ran without an account or token and with outbound networking disabled. This
+validates the local workflow, not full AWS fidelity; production validation still runs against AWS.
 
 ### 3.3 OpenRouter and cheap tool-calling models
 
@@ -180,8 +184,8 @@ Design consequences:
 
 | Option | Pros | Cons | Verdict |
 |---|---|---|---|
-| **Floci 1.5.33** | No token; persistent storage; port 4566; Terraform and required DynamoDB behaviors covered by project tests | Newer, fast-moving emulator; exact semantics still need proof | **Provisional, gated by RB-100** |
-| DynamoDB Local | Official AWS image; narrowest dependency | DynamoDB only; documented behavior differences; Terraform workflow still needs verification | Fallback if RB-100 fails |
+| **Floci 1.5.33** | No token; persistent storage; port 4566; exact Terraform and required DynamoDB behaviors passed RB-100 | Newer, fast-moving emulator; production still needs AWS validation | **Selected, validated by RB-100** |
+| DynamoDB Local | Official AWS image; narrowest dependency | DynamoDB only; documented behavior differences; Terraform workflow still needs verification | Fallback if a future pinned-version validation fails |
 | LocalStack | Mature ecosystem and broad tooling | Token and licensing friction; Hobby tier has no local persistence | Not selected |
 
 ### 4.5 Status updates, UI transport, geocoding, queue, IaC
@@ -395,7 +399,6 @@ Terraform items, not faked locally.
 
 | Item | Owner | Note |
 |---|---|---|
-| Floci compatibility gate | RB-100 | Blocks RB-101. Pass only on exact Terraform, conditional-write, pagination, TTL, persistence, and CI checks against `floci/floci:1.5.33`; otherwise use DynamoDB Local |
 | OneMap token refresh | Implementor | Token registered (Vincent); expires ~3 days. Implementor builds the refresh flow inside `OneMapGeocoder`: `POST /api/auth/post/getToken` with `.env` credentials, cache with expiry, re-fetch on expiry or `401` (contract in 3.4). Not a design blocker |
 | Action-log retention policy | Production decision | Audit-vs-privacy trade-off; revisit at productionization |
 | Uber partner approval | Vincent/business | Required before real-provider swap; timeline unknown |

@@ -5,7 +5,8 @@ _Date:_ 2026-07-25 · _Design:_ `docs/design.md` (approved) · _Contracts:_ `doc
 
 ## How this plan works
 
-Eight issues, five waves. RB-100 is an architecture gate and must close before implementation.
+Eight issues, five waves. RB-100 passed its architecture gate; its decision PR must merge before
+implementation starts.
 Issues inside an implementation wave are independent: they touch disjoint files (the
 ownership map in `contracts.md` section 13 is binding) and integrate only through interfaces frozen in
 `docs/contracts.md`. Cross-component behavior is deliberately untested until RB-107, which pairs
@@ -29,7 +30,7 @@ pairing is proven in RB-107.
 
 | Issue | Title | Wave | Size | Hard dependencies |
 |---|---|---|---|---|
-| [RB-100 #10](https://github.com/vince-e10/route-buddy/issues/10) | Validate Floci for exact Terraform and DynamoDB behavior | 0 | S | - |
+| [RB-100 #10](https://github.com/vince-e10/route-buddy/issues/10) | Floci validated for exact Terraform and DynamoDB behavior | 0 | S | - |
 | [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2) | Compose stack, Terraform IaC, skeletons, shared models, redaction | 1 | M | [#10](https://github.com/vince-e10/route-buddy/issues/10) |
 | [RB-102 #3](https://github.com/vince-e10/route-buddy/issues/3) | mock-uber: Guest Rides mock + lifecycle simulator + webhooks | 2 | L | [#2](https://github.com/vince-e10/route-buddy/issues/2) |
 | [RB-103 #4](https://github.com/vince-e10/route-buddy/issues/4) | DynamoDB repositories (sessions, trips, action log, pending actions) | 2 | M | [#2](https://github.com/vince-e10/route-buddy/issues/2) |
@@ -78,14 +79,15 @@ requirements.txt edit (only RB-107 may add a dependency, and only the e2e client
 |---|---|
 | Parallel agents drift from contracts | Single normative `contracts.md`; verbatim fixture reuse (RB-104 tests use RB-102's exact response spec); RB-107 enforcement pass |
 | Cheap LLM misbehaves at runtime | Structurally irrelevant to safety (gate is code); quality fallback chain is config: primary -> fallback model -> flip write turns to Claude (design.md 3.3) |
-| Floci differs from required DynamoDB semantics | RB-100 blocks implementation and verifies exact Terraform lifecycle, condition expressions, pagination, TTL, persistence, and CI mode against pinned `floci/floci:1.5.33`; failure falls back to DynamoDB Local |
+| A future Floci version differs from required DynamoDB semantics | Keep `floci/floci:1.5.33` pinned; re-run the [RB-100 matrix](https://github.com/vince-e10/route-buddy/issues/10#issuecomment-5078441200) before upgrading; production validation still runs against AWS |
 | Uber contract fidelity wrong somewhere | Mock mirrors documented field names verbatim; deviations surface at the adapter, both sides trace to `contracts.md` section 9 |
 | Agents "fix" invariants away (e.g. add a confirm bypass for tests) | RB-105's structural test (`test_llm_cannot_execute`) + AGENTS.md invariants; orchestrator diff review between waves |
 
 ## Sequence for the owner
 
-1. Complete [RB-100 #10](https://github.com/vince-e10/route-buddy/issues/10) and merge its
-   pass/fail decision PR.
+1. RB-100 passed its
+   [Floci validation](https://github.com/vince-e10/route-buddy/issues/10#issuecomment-5078441200);
+   merge its decision PR.
 2. Implement [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2). Verify wave 1.
 3. Implement [RB-102 #3](https://github.com/vince-e10/route-buddy/issues/3),
    [RB-103 #4](https://github.com/vince-e10/route-buddy/issues/4), and

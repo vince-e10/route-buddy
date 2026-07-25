@@ -7,8 +7,9 @@ fields/endpoints/env vars without owner approval.
 
 Design rationale lives in `docs/design.md`; this file is the mechanical contract.
 
-The Floci configuration below is provisional until the RB-100 compatibility spike passes.
-RB-101 must not start before that decision gate closes.
+RB-100 validated the pinned Floci configuration below against the exact Route Buddy Terraform
+and DynamoDB behaviors. See the
+[evidence](https://github.com/vince-e10/route-buddy/issues/10#issuecomment-5078441200).
 
 ## 1. Services and ports
 
@@ -16,7 +17,7 @@ RB-101 must not start before that decision gate closes.
 |---|---|---|---|---|
 | api | `api` | 8000 | yes (`8000:8000`) | FastAPI orchestrator + static chat UI |
 | mock-uber | `mock-uber` | 8001 | no | Guest Rides mock + driver simulator |
-| floci | `floci` | 4566 | no | Provisional DynamoDB emulator, pinned to `floci/floci:1.5.33` |
+| floci | `floci` | 4566 | no | Validated DynamoDB emulator, pinned to `floci/floci:1.5.33` |
 | iac | `iac` | - | no | Runs Terraform apply against Floci, exits 0 |
 
 Startup order: `floci` (healthcheck `curl -sf http://localhost:4566/_localstack/health`)
