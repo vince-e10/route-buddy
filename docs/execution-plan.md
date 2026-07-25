@@ -1,15 +1,15 @@
 # Route Buddy - Execution Plan
 
 _Date:_ 2026-07-25 · _Design:_ `docs/design.md` (approved) · _Contracts:_ `docs/CONTRACTS.md`
-(normative) · _Tickets:_ `docs/tasks/RB-101..RB-107`
+(normative) · _Tracker:_ [GitHub Issues](https://github.com/vince-e10/route-buddy/issues)
 
 ## How this plan works
 
-Seven tickets, four waves. Tickets inside a wave are independent: they touch disjoint files (the
+Seven issues, four waves. Issues inside a wave are independent: they touch disjoint files (the
 ownership map in CONTRACTS section 13 is binding) and integrate only through interfaces frozen in
 `docs/CONTRACTS.md`. Cross-component behavior is deliberately untested until RB-107, which pairs
-everything live and is the release gate. One agent per ticket; an agent needs ONLY its ticket
-file + the two docs it names.
+everything live and is the release gate. Each implementer starts from the linked issue body and
+the two repository documents it names.
 
 ```
 Wave 1          Wave 2 (parallel)         Wave 3 (parallel)        Wave 4
@@ -26,45 +26,42 @@ agent service, RB-106 registers the publisher; neither imports the other's files
 pairing is proven in RB-107.
 ```
 
-| Ticket | Title | Wave | Size | Hard dependencies |
+| Issue | Title | Wave | Size | Hard dependencies |
 |---|---|---|---|---|
-| RB-101 | Compose stack, Terraform IaC, skeletons, shared models, redaction | 1 | M | - |
-| RB-102 | mock-uber: Guest Rides mock + lifecycle simulator + webhooks | 2 | L | RB-101 |
-| RB-103 | DynamoDB repositories (sessions, trips, action log, pending actions) | 2 | M | RB-101 |
-| RB-104 | UberAdapter + OneMapGeocoder + StubGeocoder | 2 | M | RB-101 |
-| RB-105 | LLM client, agent loop, tools, confirmation gate, confirm + webhook endpoints | 3 | L | RB-103, RB-104 |
-| RB-106 | WebSocket transport + chat UI | 3 | M | RB-103 |
-| RB-107 | Live integration, e2e suite, security verification, README | 4 | M | all |
+| [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2) | Compose stack, Terraform IaC, skeletons, shared models, redaction | 1 | M | - |
+| [RB-102 #3](https://github.com/vince-e10/route-buddy/issues/3) | mock-uber: Guest Rides mock + lifecycle simulator + webhooks | 2 | L | [#2](https://github.com/vince-e10/route-buddy/issues/2) |
+| [RB-103 #4](https://github.com/vince-e10/route-buddy/issues/4) | DynamoDB repositories (sessions, trips, action log, pending actions) | 2 | M | [#2](https://github.com/vince-e10/route-buddy/issues/2) |
+| [RB-104 #5](https://github.com/vince-e10/route-buddy/issues/5) | UberAdapter + OneMapGeocoder + StubGeocoder | 2 | M | [#2](https://github.com/vince-e10/route-buddy/issues/2) |
+| [RB-105 #6](https://github.com/vince-e10/route-buddy/issues/6) | LLM client, agent loop, tools, confirmation gate, confirm + webhook endpoints | 3 | L | [#4](https://github.com/vince-e10/route-buddy/issues/4), [#5](https://github.com/vince-e10/route-buddy/issues/5) |
+| [RB-106 #7](https://github.com/vince-e10/route-buddy/issues/7) | WebSocket transport + chat UI | 3 | M | [#4](https://github.com/vince-e10/route-buddy/issues/4) |
+| [RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8) | Live integration, e2e suite, security verification, README | 4 | M | [#2](https://github.com/vince-e10/route-buddy/issues/2)-[#7](https://github.com/vince-e10/route-buddy/issues/7) |
 
-## Delegation protocol (per ticket)
+## Delivery protocol (per issue)
 
-Dispatch brief for the implementing agent - paste this, filling the ticket id:
-
-> Implement ticket `docs/tasks/RB-1xx-*.md` in `~/Documents/Obsidian Vault/route-buddy`.
-> Read, in order: your ticket file, `docs/CONTRACTS.md`, the `docs/design.md` sections your
-> ticket lists, `AGENTS.md`. Rules: (1) `docs/CONTRACTS.md` is frozen - if it conflicts with
-> anything or looks wrong, STOP and report instead of improvising; (2) create/modify ONLY the
-> files your ticket owns (CONTRACTS section 13); (3) this folder is NOT a git repo - no git
-> commands, no commits; (4) secrets only via `.env` (never ask for or echo values); (5) never
-> call real Uber or live OneMap from tests; (6) work through the ticket's test plan - acceptance
-> checkboxes are your definition of done; (7) finish by ticking the checkboxes you satisfied and
-> appending a close-out note at the bottom of the ticket file (what you built, deviations, exact
-> verify commands you ran). If a checkbox cannot be ticked, say so explicitly - do not claim done.
+1. Start from the issue body, then read `docs/CONTRACTS.md`, its named `docs/design.md` sections,
+   and `AGENTS.md`.
+2. Create a feature branch. Modify only the files owned by the issue in CONTRACTS section 13.
+3. If the frozen contract conflicts with reality, stop and report it instead of improvising.
+4. Keep secrets in `.env`; never ask for or echo values. Never call real Uber or live OneMap
+   from tests.
+5. Complete the issue's checks and acceptance criteria. Leave blocked items unchecked.
+6. Open a pull request against `main` with `Closes #<issue>`. Record what was built, approved
+   deviations, and exact verification commands and results in the pull request description.
 
 Verification between waves (the orchestrator, not the implementing agents):
-- After wave 1: run RB-101's manual verification block yourself (compose up, tables, healthz,
+- After wave 1: run RB-101's manual verification block (compose up, tables, healthz,
   restart cycle). Do not start wave 2 on a red skeleton.
-- After each wave-2/3 ticket: run the ticket's own test command from its close-out; spot-read the
+- After each wave-2/3 issue: rerun the commands recorded in its pull request; spot-read the
   diff for ownership-map violations and contract drift (field renames are the classic failure).
 - Wave 4 (RB-107) is the real gate: its agent fixes integration bugs and must list every
-  cross-ticket fix in its close-out.
+  cross-issue fix in its pull request description.
 
 Recommended agent setup per your delegation model: implementation model of your choice per
-session default; each wave-2/3 ticket is a self-contained brief, so agents can run concurrently
+session default; each wave-2/3 issue is a self-contained brief, so agents can run concurrently
 in this folder because their file sets are disjoint - but do NOT run two agents that share a
 requirements.txt edit (only RB-107 may add a dependency, and only the e2e client).
 
-## What is deliberately NOT in the tickets
+## What is deliberately NOT in the issues
 
 - Prod Terraform modules (ECS/ALB/IAM/Secrets Manager) - design.md section 12/prod path; built at
   productionization, not MVP
@@ -84,9 +81,12 @@ requirements.txt edit (only RB-107 may add a dependency, and only the e2e client
 
 ## Sequence for the owner
 
-1. Dispatch RB-101. Verify wave 1 yourself (10 minutes).
-2. Dispatch RB-102, RB-103, RB-104 concurrently.
-3. Dispatch RB-105 and RB-106 concurrently.
-4. Dispatch RB-107. Review its close-out (integration fixes + security checklist) - that review
-   is the MVP acceptance.
+1. Implement [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2). Verify wave 1.
+2. Implement [RB-102 #3](https://github.com/vince-e10/route-buddy/issues/3),
+   [RB-103 #4](https://github.com/vince-e10/route-buddy/issues/4), and
+   [RB-104 #5](https://github.com/vince-e10/route-buddy/issues/5) concurrently.
+3. Implement [RB-105 #6](https://github.com/vince-e10/route-buddy/issues/6) and
+   [RB-106 #7](https://github.com/vince-e10/route-buddy/issues/7) concurrently.
+4. Implement [RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8). Its integration
+   fixes and security checklist are the MVP acceptance.
 5. Demo: `scripts/demo.sh`, browser at `http://localhost:8000`.

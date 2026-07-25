@@ -3,7 +3,7 @@
 _Status:_ Approved (design), implementation not started
 _Date:_ 2026-07-25
 _Author:_ Claude (chief-architect session), decisions by Vincent
-_Project folder:_ `~/Documents/Obsidian Vault/route-buddy` (deliberately not a git repo yet)
+_Repository:_ [vince-e10/route-buddy](https://github.com/vince-e10/route-buddy)
 _Requirements:_ `docs/high-level-requirements.md` · Live status: `docs/rfc.md` · Agent brief: `AGENTS.md`
 
 ## 1. Summary

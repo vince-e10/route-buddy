@@ -15,6 +15,8 @@ docs-live-in-the-vault convention - we work on them here):
 - `docs/high-level-requirements.md` - the spec
 - `docs/design.md` - approved RFC / detailed design (2026-07-25). Decisions recorded there are
   settled; read it before implementing, don't re-litigate.
+- `docs/CONTRACTS.md` - frozen cross-component interfaces; implementation must match them.
+- `docs/execution-plan.md` - dependency waves and links to implementation issues.
 - `docs/rfc.md` - live status: goal, status, next step, open questions, dated log
 
 This file is how to work in the repo.
@@ -25,9 +27,18 @@ This folder is a Git repository. Work on feature branches, validate changes befo
 push branches, and open PRs against `main`. Never commit or push directly to `main`; the owner
 merges PRs.
 
-## Status: EMPTY SCAFFOLD
+Every implementation change starts from a [GitHub issue](https://github.com/vince-e10/route-buddy/issues).
+GitHub Issues are the single source of truth for task scope, acceptance criteria, dependencies,
+and status. Do not create local task files. Pull requests must link their issue with
+`Closes #<issue>` and record verification results and approved deviations.
 
-There is no application code yet - only requirements and this agent brief. Everything under
+Treat every change as production work: preserve the three invariants, keep changes reviewable,
+test behavior in proportion to risk, and leave `main` releasable.
+
+## Status: PLANNED, IMPLEMENTATION NOT STARTED
+
+There is no application code yet - only requirements, design, contracts, and issue-backed
+implementation plans. Everything under
 "Intended shape" below is a *decision*, not something you can read in the tree. When you build
 a piece, replace its bullet here with what actually exists (paths, module names). Never describe
 something as present when it isn't.

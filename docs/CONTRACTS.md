@@ -1,8 +1,9 @@
 # Route Buddy - Frozen Interface Contracts
 
-**Normative.** Every implementation ticket (docs/tasks/RB-1xx) codes against THIS file. If a ticket
-and this file disagree, this file wins; if this file and reality disagree, STOP and report - do not
-improvise. Do not rename, add, or remove fields/endpoints/env vars without owner approval.
+**Normative.** Every [implementation issue](https://github.com/vince-e10/route-buddy/issues)
+codes against THIS file. If an issue and this file disagree, this file wins; if this file and
+reality disagree, STOP and report - do not improvise. Do not rename, add, or remove
+fields/endpoints/env vars without owner approval.
 
 Design rationale lives in `docs/design.md`; this file is the mechanical contract.
 
@@ -438,17 +439,17 @@ reconciles via GET). api dedupes on `event_id` (TripRepo.apply_status_event).
 `executed`, response/error body on `outcome`). Secrets never appear in payloads; guest PII MAY
 appear in `executed` payloads (the action log is the access-controlled audit trail).
 
-## 13. File ownership map (no ticket edits another ticket's files)
+## 13. File ownership map (no issue edits another issue's files)
 
 | Path | Owner |
 |---|---|
-| `docker-compose.yml`, `.env.example`, `infra/**`, `api/Dockerfile`, `api/requirements.txt`, `api/.dockerignore`, `api/app/{main,config,models,registry,logging_setup}.py`, `api/app/providers/base.py`, `api/app/geocode/base.py`, `api/app/ws/publisher.py`, `api/app/routers/*` (initial EMPTY stubs only; RB-105 fills confirm.py + webhooks.py, RB-106 fills ws.py - see those rows), `mock-uber/Dockerfile`, `mock-uber/requirements.txt`, `mock-uber/.dockerignore`, `api/tests/test_health.py`, `api/tests/test_logging.py`, `api/tests/test_registry.py` | RB-101 |
-| `mock-uber/app/**`, `mock-uber/tests/**` | RB-102 |
-| `api/app/storage/**`, `api/tests/storage/**` | RB-103 |
-| `api/app/providers/uber.py`, `api/app/geocode/{onemap,stub}.py`, `api/tests/providers/**`, `api/tests/geocode/**` | RB-104 |
-| `api/app/agent/**`, `api/app/deps.py`, `api/app/routers/{confirm,webhooks}.py` (fill stubs), `api/tests/agent/**` | RB-105 |
-| `api/app/ws/manager.py`, `api/app/routers/ws.py` (fill stub), `api/app/static/index.html`, `api/tests/ws/**` | RB-106 |
-| `scripts/**`, `api/tests/e2e/**`, `README.md` | RB-107 |
+| `docker-compose.yml`, `.env.example`, `infra/**`, `api/Dockerfile`, `api/requirements.txt`, `api/.dockerignore`, `api/app/{main,config,models,registry,logging_setup}.py`, `api/app/providers/base.py`, `api/app/geocode/base.py`, `api/app/ws/publisher.py`, `api/app/routers/*` (initial EMPTY stubs only; RB-105 fills confirm.py + webhooks.py, RB-106 fills ws.py - see those rows), `mock-uber/Dockerfile`, `mock-uber/requirements.txt`, `mock-uber/.dockerignore`, `api/tests/test_health.py`, `api/tests/test_logging.py`, `api/tests/test_registry.py` | [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2) |
+| `mock-uber/app/**`, `mock-uber/tests/**` | [RB-102 #3](https://github.com/vince-e10/route-buddy/issues/3) |
+| `api/app/storage/**`, `api/tests/storage/**` | [RB-103 #4](https://github.com/vince-e10/route-buddy/issues/4) |
+| `api/app/providers/uber.py`, `api/app/geocode/{onemap,stub}.py`, `api/tests/providers/**`, `api/tests/geocode/**` | [RB-104 #5](https://github.com/vince-e10/route-buddy/issues/5) |
+| `api/app/agent/**`, `api/app/deps.py`, `api/app/routers/{confirm,webhooks}.py` (fill stubs), `api/tests/agent/**` | [RB-105 #6](https://github.com/vince-e10/route-buddy/issues/6) |
+| `api/app/ws/manager.py`, `api/app/routers/ws.py` (fill stub), `api/app/static/index.html`, `api/tests/ws/**` | [RB-106 #7](https://github.com/vince-e10/route-buddy/issues/7) |
+| `scripts/**`, `api/tests/e2e/**`, `README.md` | [RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8) |
 
 `api/app/main.py` is written ONCE in RB-101 with all router includes pointing at stub routers;
-later tickets fill their stub router files and never touch `main.py`.
+later issues fill their stub router files and never touch `main.py`.
