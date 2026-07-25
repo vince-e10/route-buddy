@@ -7,7 +7,7 @@ def test_healthz() -> None:
     response = TestClient(app).get("/healthz")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "intentionally-broken-ci-proof"}
+    assert response.json() == {"status": "ok"}
 
 
 def test_static_index_served() -> None:
