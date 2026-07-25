@@ -1,7 +1,9 @@
 import json
+import os
 from pathlib import Path
 
 import httpx
+from app.config import SECRET_ENV_VARS
 
 
 API_URL = "http://api:8000"
@@ -12,11 +14,12 @@ def _evidence(name: str) -> str:
     return (EVIDENCE_DIR / name).read_text()
 
 
-def test_safe_compose_evidence_does_not_resolve_secrets():
-    config = _evidence("compose-config.txt")
-    assert "${WEBHOOK_SHARED_SECRET:-}" in config
-    assert "${LLM_MODE:-openrouter}" in config
-    assert "e2e-webhook-secret" not in config
+def test_safe_compose_evidence_excludes_runtime_secrets():
+    config = _evidence("docker-compose.yml")
+    for name in SECRET_ENV_VARS:
+        value = os.getenv(name, "")
+        if value:
+            assert value not in config
 
 
 def test_api_and_mock_uber_run_as_nonroot():

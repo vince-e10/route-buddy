@@ -4,9 +4,28 @@ Route Buddy finds, compares, books, tracks, and cancels Singapore rides. The MVP
 deterministic mock of Uber Guest Rides, never the real Uber API.
 
 ```
-browser chat -> FastAPI -> agent loop -> tools -> Uber adapter -> mock Uber
-                  |                         |
-                  +-> DynamoDB action log    +-> confirmation gate for writes
+                    docker compose up  (one command)
+┌─────────────────────────────────────────────────────────────────┐
+│  Browser ◀──(WebSocket: chat + confirms + live status)──┐       │
+│  (static chat page served by api)                       ▼       │
+│   ┌─────────┐ terraform apply  ┌──────────────────────────────┐ │
+│   │  iac    │────────────────▶ │          api (FastAPI)       │ │
+│   │ (init,  │                  │ agent loop · tools · gate    │ │
+│   │ exits)  │                  │ action log · sessions · WS   │ │
+│   └────┬────┘                  └───┬───────────┬──────────────┘ │
+│        │ creates tables            │           ▲                │
+│        ▼                           ▼           │ webhook        │
+│   ┌────────────┐             ┌────────────┐    │ (status_changed│
+│   │   floci    │◀────────────│ mock-uber  │────┘  + shared     │
+│   │ DynamoDB   │  (no - api  │ (FastAPI)  │       secret)      │
+│   │ 4 tables   │  only)      │ Guest Rides│                    │
+│   └────────────┘             │ + driver   │                    │
+│                              │   simulator│                    │
+│                              └────────────┘                    │
+└───────────────────────┬─────────────────────┬───────────────────┘
+                        ▼ external            ▼ external
+                  OpenRouter API         SG OneMap API
+             (glm-4.5-air → minimax-m2)  (geocoding, token)
 ```
 
 ## Prerequisites and environment
@@ -47,7 +66,7 @@ real OpenRouter and OneMap values are needed for the non-fake demo path.
 ```sh
 cp .env.example .env
 # Edit .env locally with the values above.
-docker compose up --build
+docker compose up -d --build
 ```
 
 Open `http://localhost:8000`, or use the bounded startup helper:

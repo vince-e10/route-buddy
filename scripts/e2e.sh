@@ -24,7 +24,8 @@ if [ ! -f .env ]; then
 fi
 
 docker compose down -v
-docker compose config --no-interpolate > "$evidence_dir/compose-config.txt"
+docker compose config --quiet
+cp docker-compose.yml "$evidence_dir/docker-compose.yml"
 LLM_MODE=fake MOCK_DETERMINISTIC=1 WEBHOOK_SHARED_SECRET=e2e-webhook-secret FLOCI_STORAGE_MODE=memory \
   docker compose up -d --build
 

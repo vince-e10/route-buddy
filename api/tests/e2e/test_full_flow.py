@@ -1,4 +1,5 @@
 import json
+import os
 import time
 import uuid
 
@@ -28,7 +29,10 @@ class Chat:
 
     def next(self, predicate) -> dict:
         deadline = time.monotonic() + WAIT_SECONDS
-        while remaining := deadline - time.monotonic():
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
             message = json.loads(self.socket.recv(timeout=remaining))
             self.messages.append(message)
             if predicate(message):
@@ -63,6 +67,30 @@ def _wait_for_rows(table, session_id: str, minimum: int = 1) -> list[dict]:
             return rows
         time.sleep(0.1)
     raise AssertionError(f"timed out waiting for {minimum} {table.table_name} rows")
+
+
+def _wait_for_trip_count(session_id: str, expected: int) -> list[dict]:
+    table = _ddb_table("trips")
+    deadline = time.monotonic() + WAIT_SECONDS
+    while time.monotonic() < deadline:
+        rows = table.query(
+            IndexName="by_session", KeyConditionExpression=Key("session_id").eq(session_id)
+        )["Items"]
+        if len(rows) == expected:
+            return rows
+        time.sleep(0.1)
+    raise AssertionError(f"timed out waiting for {expected} trips")
+
+
+def _assert_trip_count_stays(session_id: str, expected: int) -> None:
+    table = _ddb_table("trips")
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        rows = table.query(
+            IndexName="by_session", KeyConditionExpression=Key("session_id").eq(session_id)
+        )["Items"]
+        assert len(rows) == expected
+        time.sleep(0.1)
 
 
 def _quote_and_request_book(chat: Chat) -> dict:
@@ -115,9 +143,15 @@ def test_happy_path_streams_driver_lifecycle_in_order(chat):
 def test_dismissing_book_request_creates_no_trip(chat):
     request = _quote_and_request_book(chat)
     assert _confirm(request["token"], "dismiss") == {"result": "dismissed", "trip_id": None}
-    assert _ddb_table("trips").query(
-        IndexName="by_session", KeyConditionExpression=Key("session_id").eq(chat.session_id)
-    )["Items"] == []
+    assert chat.next(
+        lambda item: item == {
+            "type": "confirmation_resolved",
+            "token": request["token"],
+            "result": "dismissed",
+            "trip_id": None,
+        }
+    )
+    _assert_trip_count_stays(chat.session_id, 0)
 
 
 def test_cancel_after_accepted_produces_rider_canceled(chat):
@@ -162,10 +196,9 @@ def test_confirm_token_is_single_use_and_creates_one_trip(chat):
     second = _confirm(request["token"])
     assert first["result"] == "executed"
     assert second == {"result": "expired", "trip_id": None}
-    trips = _ddb_table("trips").query(
-        IndexName="by_session", KeyConditionExpression=Key("session_id").eq(chat.session_id)
-    )["Items"]
+    trips = _wait_for_trip_count(chat.session_id, 1)
     assert len(trips) == 1
+    _assert_trip_count_stays(chat.session_id, 1)
 
 
 def test_action_log_has_search_book_and_applied_webhook_phases(chat):
@@ -175,7 +208,7 @@ def test_action_log_has_search_book_and_applied_webhook_phases(chat):
         and item.get("trip_id") == trip_id
         and item.get("status") == "completed"
     )
-    rows = _wait_for_rows(_ddb_table("action_log"), chat.session_id, minimum=12)
+    rows = _wait_for_rows(_ddb_table("action_log"), chat.session_id, minimum=15)
     rows.sort(key=lambda item: item["entry_key"])
     phases = [(item.get("tool"), item["phase"]) for item in rows]
     expected = [
@@ -195,15 +228,45 @@ def test_action_log_has_search_book_and_applied_webhook_phases(chat):
             if index == len(expected):
                 break
     assert index == len(expected)
-    assert any(
-        item["actor"] == "webhook" and item["payload"].get("applied") is True
+    book_requested = next(
+        item
         for item in rows
+        if item["tool"] == "book_ride" and item["phase"] == "requested"
     )
+    book_rows = [
+        item for item in rows if item["correlation_id"] == book_requested["correlation_id"]
+    ]
+    assert [
+        (item["phase"], item["actor"], item["tool"])
+        for item in book_rows
+    ] == [
+        ("requested", "llm", "book_ride"),
+        ("verified", "system", "book_ride"),
+        ("verified", "user", "book"),
+        ("executed", "system", "book_ride"),
+        ("outcome", "system", "book_ride"),
+    ]
+    assert set(book_rows[0]["payload"]) == {"fare_id"}
+    assert book_rows[1]["payload"] == {"result": "token_created"}
+    assert book_rows[2]["payload"] == {"result": "claimed"}
+    assert book_rows[3]["payload"]["endpoint"] == "POST /v1/guests/trips"
+    assert book_rows[4]["payload"] == {"result": "booked", "trip_id": trip_id}
+    webhook_statuses = [
+        item["payload"]["status"]
+        for item in rows
+        if item["actor"] == "webhook" and item["payload"].get("applied") is True
+    ]
+    assert webhook_statuses == ["accepted", "arriving", "in_progress", "completed"]
 
 
 def test_phone_is_absent_from_session_and_websocket_messages(chat):
-    _book(chat)
-    phone = "+6591234567"
+    trip_id = _book(chat)
+    chat.next(
+        lambda item: item.get("type") == "trip_update"
+        and item.get("trip_id") == trip_id
+        and item.get("status") == "completed"
+    )
+    phone = os.environ["RIDER_PHONE"]
     session = _ddb_table("sessions").get_item(Key={"session_id": chat.session_id})["Item"]
     assert phone not in json.dumps(session, default=str)
     assert phone not in json.dumps(chat.messages)

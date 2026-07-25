@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import pytest
 
@@ -34,13 +35,14 @@ def trip_payload(estimate, **changes):
 def poll_trip_statuses(client, headers, request_id, initial_status):
     statuses = [initial_status]
     drivers = {}
-    for _ in range(10):
+    for _ in range(30):
         trip = client.get(f"/v1/guests/trips/{request_id}", headers=headers).json()
         if trip["status"] != statuses[-1]:
             statuses.append(trip["status"])
             drivers[trip["status"]] = trip["driver"]
         if trip["status"] == "completed" or trip["status"].endswith("canceled") or trip["status"] == "no_drivers_available":
             break
+        time.sleep(0.05)
     return statuses, drivers
 
 
@@ -107,10 +109,23 @@ def test_deterministic_trip_completes_without_get_observations(client, auth_head
         "/v1/guests/trips", headers=auth_headers, json=trip_payload(estimate(client, auth_headers))
     ).json()
 
-    client.portal.call(asyncio.sleep, 0.3)
+    client.portal.call(asyncio.sleep, 1.1)
 
     trip = client.get(f"/v1/guests/trips/{created['request_id']}", headers=auth_headers).json()
     assert trip["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_deterministic_delay_ignores_stale_observation(monkeypatch):
+    monkeypatch.setenv("MOCK_DETERMINISTIC", "1")
+    simulator = Simulator(Store())
+    simulator._observed["request-1"] = asyncio.Event()
+    simulator._observed["request-1"].set()
+
+    started = time.monotonic()
+    await simulator._delay(0, "request-1")
+
+    assert time.monotonic() - started >= 0.2
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ from app.models import TripStatus, WebhookEvent
 
 
 logger = logging.getLogger(__name__)
+DETERMINISTIC_OBSERVATION_TIMEOUT = 0.25
 
 
 class Simulator:
@@ -38,8 +39,9 @@ class Simulator:
         if os.getenv("MOCK_DETERMINISTIC") == "1":
             event = self._observed.get(request_id)
             if event is not None:
+                event.clear()
                 try:
-                    await asyncio.wait_for(event.wait(), timeout=0.05)
+                    await asyncio.wait_for(event.wait(), timeout=DETERMINISTIC_OBSERVATION_TIMEOUT)
                 except TimeoutError:
                     pass
                 event.clear()
