@@ -7,7 +7,7 @@ from tests.storage.conftest import place, quote, session
 
 
 @pytest.mark.asyncio
-async def test_put_get_roundtrip_preserves_nested_quote_and_place() -> None:
+async def test_roundtrip() -> None:
     original = session()
     original.quotes = {"quote": quote()}
     original.places = {"place": place(1)}
@@ -24,12 +24,12 @@ async def test_put_get_roundtrip_preserves_nested_quote_and_place() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_returns_none_when_session_is_absent() -> None:
+async def test_absent_returns_none() -> None:
     assert await SessionRepo().get("missing-session") is None
 
 
 @pytest.mark.asyncio
-async def test_get_rejects_code_expired_session_after_raw_expiry_rewrite(dynamodb) -> None:
+async def test_code_expiry(dynamodb) -> None:
     original = session()
     repo = SessionRepo()
     await repo.put(original)
@@ -43,7 +43,7 @@ async def test_get_rejects_code_expired_session_after_raw_expiry_rewrite(dynamod
 
 
 @pytest.mark.asyncio
-async def test_put_retains_last_forty_messages() -> None:
+async def test_message_cap() -> None:
     original = session()
     original.messages = [{"index": index} for index in range(45)]
 
@@ -56,7 +56,7 @@ async def test_put_retains_last_forty_messages() -> None:
 
 
 @pytest.mark.asyncio
-async def test_put_retains_last_twenty_insertion_ordered_places() -> None:
+async def test_places_cap() -> None:
     original = session()
     original.places = {f"place-{index}": place(index) for index in range(25)}
 

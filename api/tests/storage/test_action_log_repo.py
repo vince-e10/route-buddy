@@ -7,7 +7,7 @@ from tests.storage.conftest import action_log_entry, session
 
 
 @pytest.mark.asyncio
-async def test_append_writes_ordered_entries_without_a_read(dynamodb) -> None:
+async def test_append_and_read_back_raw(dynamodb) -> None:
     session_id = session().session_id
     repo = ActionLogRepo()
 
@@ -30,7 +30,7 @@ async def test_append_writes_ordered_entries_without_a_read(dynamodb) -> None:
     )
 
 
-def test_action_log_repo_exposes_only_append() -> None:
+def test_append_only_surface() -> None:
     assert [name for name in dir(ActionLogRepo) if not name.startswith("_")] == ["append"]
 
 

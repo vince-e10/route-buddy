@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -14,7 +15,8 @@ class ActionLogRepo:
         value = entry.model_copy(deep=True)
         if not value.entry_key:
             value.entry_key = f"{datetime.now(timezone.utc).isoformat()}#{uuid4().hex[:6]}"
-        self._table.put_item(
+        await asyncio.to_thread(
+            self._table.put_item,
             Item=_to_ddb(value.model_dump(mode="json")),
             ConditionExpression="attribute_not_exists(session_id) AND attribute_not_exists(entry_key)",
         )

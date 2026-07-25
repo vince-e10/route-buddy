@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 
 from app.models import Session
@@ -10,7 +11,8 @@ class SessionRepo:
         self._table = _table("sessions")
 
     async def get(self, session_id: str) -> Session | None:
-        item = self._table.get_item(Key={"session_id": session_id}).get("Item")
+        response = await asyncio.to_thread(self._table.get_item, Key={"session_id": session_id})
+        item = response.get("Item")
         if item is None:
             return None
         value = _from_ddb(item)
@@ -25,4 +27,6 @@ class SessionRepo:
         value.expires_at = int(now.timestamp()) + 86400
         value.messages = value.messages[-40:]
         value.places = dict(list(value.places.items())[-20:])
-        self._table.put_item(Item=_to_ddb(value.model_dump(mode="json")))
+        await asyncio.to_thread(
+            self._table.put_item, Item=_to_ddb(value.model_dump(mode="json"))
+        )

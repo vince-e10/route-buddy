@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -16,10 +17,13 @@ class TripRepo:
         self._table = _table("trips")
 
     async def put(self, trip: Trip) -> None:
-        self._table.put_item(Item=_to_ddb(trip.model_dump(mode="json")))
+        await asyncio.to_thread(
+            self._table.put_item, Item=_to_ddb(trip.model_dump(mode="json"))
+        )
 
     async def get(self, trip_id: str) -> Trip | None:
-        item = self._table.get_item(Key={"trip_id": trip_id}).get("Item")
+        response = await asyncio.to_thread(self._table.get_item, Key={"trip_id": trip_id})
+        item = response.get("Item")
         return Trip.model_validate(_from_ddb(item)) if item else None
 
     async def list_by_session(self, session_id: str) -> list[Trip]:
@@ -29,7 +33,7 @@ class TripRepo:
             "KeyConditionExpression": Key("session_id").eq(session_id),
         }
         while True:
-            response = self._table.query(**query)
+            response = await asyncio.to_thread(self._table.query, **query)
             items.extend(response.get("Items", []))
             key = response.get("LastEvaluatedKey")
             if not key:
@@ -66,7 +70,8 @@ class TripRepo:
             update += ", driver = :driver"
             values[":driver"] = driver.model_dump(mode="json")
         try:
-            response = self._table.update_item(
+            response = await asyncio.to_thread(
+                self._table.update_item,
                 Key={"trip_id": trip_id},
                 UpdateExpression=update,
                 ConditionExpression="attribute_exists(trip_id) AND (attribute_not_exists(last_event_id) OR last_event_id <> :eid)",

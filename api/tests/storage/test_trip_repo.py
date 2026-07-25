@@ -18,7 +18,7 @@ async def test_put_get_roundtrip() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_by_session_returns_trips_in_created_order() -> None:
+async def test_list_by_session_ordered() -> None:
     session_id = session().session_id
     created = now()
     expected = [
@@ -38,7 +38,7 @@ async def test_list_by_session_returns_trips_in_created_order() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_status_event_moves_processing_to_accepted_and_stores_driver() -> None:
+async def test_apply_event_happy() -> None:
     original = trip(session().session_id)
     repo = TripRepo()
     await repo.put(original)
@@ -55,7 +55,7 @@ async def test_apply_status_event_moves_processing_to_accepted_and_stores_driver
 
 
 @pytest.mark.asyncio
-async def test_apply_status_event_returns_none_for_duplicate_event_without_change() -> None:
+async def test_apply_event_duplicate() -> None:
     original = trip(session().session_id)
     repo = TripRepo()
     await repo.put(original)
@@ -73,7 +73,7 @@ async def test_apply_status_event_returns_none_for_duplicate_event_without_chang
 
 
 @pytest.mark.asyncio
-async def test_apply_status_event_rejects_illegal_completed_to_accepted_transition() -> None:
+async def test_apply_event_illegal_transition() -> None:
     original = trip(session().session_id)
     original.status = TripStatus.completed
     repo = TripRepo()
@@ -88,7 +88,7 @@ async def test_apply_status_event_rejects_illegal_completed_to_accepted_transiti
 
 
 @pytest.mark.asyncio
-async def test_apply_status_event_returns_none_for_unknown_trip() -> None:
+async def test_apply_event_unknown_trip() -> None:
     assert (
         await TripRepo().apply_status_event(
             "unknown-trip", "event-1", TripStatus.accepted, None

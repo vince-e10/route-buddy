@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
@@ -12,11 +13,14 @@ class PendingActionRepo:
         self._table = _table("pending_actions")
 
     async def put(self, action: PendingAction) -> None:
-        self._table.put_item(Item=_to_ddb(action.model_dump(mode="json")))
+        await asyncio.to_thread(
+            self._table.put_item, Item=_to_ddb(action.model_dump(mode="json"))
+        )
 
     async def claim(self, token: str) -> PendingAction | None:
         try:
-            response = self._table.delete_item(
+            response = await asyncio.to_thread(
+                self._table.delete_item,
                 Key={"token": token},
                 ConditionExpression="attribute_exists(#t)",
                 ExpressionAttributeNames={"#t": "token"},
