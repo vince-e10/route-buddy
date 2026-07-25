@@ -6,6 +6,15 @@ from app.storage import SessionRepo
 from tests.storage.conftest import place, quote, session
 
 
+class _GetTable:
+    def __init__(self) -> None:
+        self.kwargs = None
+
+    def get_item(self, **kwargs):
+        self.kwargs = kwargs
+        return {}
+
+
 @pytest.mark.asyncio
 async def test_roundtrip() -> None:
     original = session()
@@ -26,6 +35,18 @@ async def test_roundtrip() -> None:
 @pytest.mark.asyncio
 async def test_absent_returns_none() -> None:
     assert await SessionRepo().get("missing-session") is None
+
+
+@pytest.mark.asyncio
+async def test_get_uses_strongly_consistent_base_table_read() -> None:
+    repo = SessionRepo.__new__(SessionRepo)
+    repo._table = _GetTable()
+
+    assert await repo.get("session-id") is None
+    assert repo._table.kwargs == {
+        "Key": {"session_id": "session-id"},
+        "ConsistentRead": True,
+    }
 
 
 @pytest.mark.asyncio

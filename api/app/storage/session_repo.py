@@ -11,7 +11,11 @@ class SessionRepo:
         self._table = _table("sessions")
 
     async def get(self, session_id: str) -> Session | None:
-        response = await asyncio.to_thread(self._table.get_item, Key={"session_id": session_id})
+        response = await asyncio.to_thread(
+            self._table.get_item,
+            Key={"session_id": session_id},
+            ConsistentRead=True,
+        )
         item = response.get("Item")
         if item is None:
             return None

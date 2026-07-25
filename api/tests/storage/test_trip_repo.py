@@ -8,6 +8,15 @@ from app.storage._dynamo import _to_ddb
 from tests.storage.conftest import now, session, trip
 
 
+class _GetTable:
+    def __init__(self) -> None:
+        self.kwargs = None
+
+    def get_item(self, **kwargs):
+        self.kwargs = kwargs
+        return {}
+
+
 @pytest.mark.asyncio
 async def test_put_get_roundtrip() -> None:
     original = trip(session().session_id)
@@ -15,6 +24,18 @@ async def test_put_get_roundtrip() -> None:
     await repo.put(original)
 
     assert await repo.get(original.trip_id) == original
+
+
+@pytest.mark.asyncio
+async def test_get_uses_strongly_consistent_base_table_read() -> None:
+    repo = TripRepo.__new__(TripRepo)
+    repo._table = _GetTable()
+
+    assert await repo.get("trip-id") is None
+    assert repo._table.kwargs == {
+        "Key": {"trip_id": "trip-id"},
+        "ConsistentRead": True,
+    }
 
 
 @pytest.mark.asyncio

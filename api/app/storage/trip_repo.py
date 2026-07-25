@@ -22,7 +22,11 @@ class TripRepo:
         )
 
     async def get(self, trip_id: str) -> Trip | None:
-        response = await asyncio.to_thread(self._table.get_item, Key={"trip_id": trip_id})
+        response = await asyncio.to_thread(
+            self._table.get_item,
+            Key={"trip_id": trip_id},
+            ConsistentRead=True,
+        )
         item = response.get("Item")
         return Trip.model_validate(_from_ddb(item)) if item else None
 
