@@ -31,7 +31,7 @@ jobs:
       - name: Wait for infrastructure and health checks
         run: |
           for attempt in {1..45}; do
-            iac_status=$(docker inspect "$(docker compose ps -q iac)" --format '{{.State.Status}} {{.State.ExitCode}}' 2>/dev/null || true)
+            iac_status=$(docker inspect "$(docker compose ps -a -q iac)" --format '{{.State.Status}} {{.State.ExitCode}}' 2>/dev/null || true)
             if [ "$iac_status" = "exited 0" ] && curl --fail --silent http://localhost:8000/healthz >/dev/null && docker compose exec -T api python -c "from urllib.request import urlopen; urlopen('http://mock-uber:8001/healthz')" && docker compose exec -T api python -c "import boto3; tables=set(boto3.client('dynamodb').list_tables()['TableNames']); assert tables == {'sessions', 'trips', 'action_log', 'pending_actions'}, tables"; then
               exit 0
             fi
