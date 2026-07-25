@@ -1,0 +1,20 @@
+Route Buddy - MVP
+- AI agent books ride hailing and manage trip end to end including:
+  - Discover options
+  - Compare prices
+  - Book
+  - Track
+  - Cancel
+- Important requirements:
+  - Must have confirmation gates to prevent the agent from booking with the user confirmation
+  - Action logs that record every attempt: what was requested, what was verified, what was executed, what happened
+- Booking platforms providers:
+  - Main provider (MVP): Uber
+  - Future provider: Lyft, Grab
+- Frontend:
+  - Multi-turn conversations and follow up enquiries
+  - The bot must strictly adhere to the provided context & avoid hallucinating information not present in the source data or calling a wrong tool
+- Backend:
+  - Must use FastAPI service
+- The whole system must be containerized, up and running with 1 command
+- Use localstack or similar stack that can be easily productionize to AWS stack
