@@ -13,17 +13,24 @@ this file (live status).
 _Last updated: 2026-07-25_
 
 **Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, DynamoDB on an AWS-compatible local emulator, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
-**Status:** RB-100 and its decision PR are merged. RB-101 is implemented and locally verified on
-its feature branch: Compose startup, four Terraform-managed DynamoDB tables, API and mock health,
-non-root workloads, log redaction, persistent Floci restart, and no-change Terraform re-apply.
-**Next step:** Open the RB-101 pull request, prove `CI / required` fails then passes, and require
-that check in the `main` ruleset.
+**Status:** RB-100 and its decision PR are merged. RB-101 is implemented and locally verified in
+[PR #13](https://github.com/vince-e10/route-buddy/pull/13). Its required CI check has proven both
+failure and success, and the strict `main` ruleset now requires that check.
+**Next step:** Review and merge [PR #13](https://github.com/vince-e10/route-buddy/pull/13), then
+start the independent wave-2 issues.
 **Open questions:**
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
 - Uber partner approval timeline - business, needed only for real-provider swap
 
 ## Log
+
+### 2026-07-25 - RB-101 PR opened and merge protection enabled
+- Opened [PR #13](https://github.com/vince-e10/route-buddy/pull/13) with the locally verified
+  foundation.
+- Proved `CI / required` fails for a deliberately broken health test and passes after restoration.
+- Updated the strict `main` ruleset to require pull requests, current branches, resolved
+  conversations, and the GitHub Actions check while continuing to block deletion and force pushes.
 
 ### 2026-07-25 - RB-101 foundation locally verified
 - Built the Compose stack, Terraform data module, API and mock service skeletons, frozen shared
