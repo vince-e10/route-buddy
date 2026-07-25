@@ -14,6 +14,22 @@ def _evidence(name: str) -> str:
     return (EVIDENCE_DIR / name).read_text()
 
 
+def _compose_services(raw: str) -> list[dict]:
+    if raw.lstrip().startswith("["):
+        return json.loads(raw)
+    return [json.loads(line) for line in raw.splitlines() if line.strip()]
+
+
+def test_compose_services_accepts_array_and_json_lines():
+    first = {"Service": "api"}
+    second = {"Service": "ui"}
+    assert _compose_services(json.dumps([first, second])) == [first, second]
+    assert _compose_services(f"{json.dumps(first)}\n{json.dumps(second)}\n") == [
+        first,
+        second,
+    ]
+
+
 def test_safe_compose_evidence_excludes_runtime_secrets():
     config = _evidence("docker-compose.yml")
     for name in SECRET_ENV_VARS:
@@ -28,7 +44,7 @@ def test_api_and_mock_uber_run_as_nonroot():
 
 
 def test_only_api_has_a_published_host_port():
-    services = json.loads(_evidence("compose-ps.jsonl"))
+    services = _compose_services(_evidence("compose-ps.jsonl"))
     published = {
         service["Service"]
         for service in services
