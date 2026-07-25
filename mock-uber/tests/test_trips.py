@@ -109,7 +109,7 @@ def test_deterministic_trip_completes_without_get_observations(client, auth_head
         "/v1/guests/trips", headers=auth_headers, json=trip_payload(estimate(client, auth_headers))
     ).json()
 
-    client.portal.call(asyncio.sleep, 1.1)
+    client.portal.call(asyncio.sleep, 8.5)
 
     trip = client.get(f"/v1/guests/trips/{created['request_id']}", headers=auth_headers).json()
     assert trip["status"] == "completed"
@@ -125,7 +125,7 @@ async def test_deterministic_delay_ignores_stale_observation(monkeypatch):
     started = time.monotonic()
     await simulator._delay(0, "request-1")
 
-    assert time.monotonic() - started >= 0.2
+    assert time.monotonic() - started >= 1.8
 
 
 @pytest.mark.asyncio

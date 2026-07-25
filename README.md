@@ -5,27 +5,27 @@ deterministic mock of Uber Guest Rides, never the real Uber API.
 
 ```
                     docker compose up  (one command)
-┌─────────────────────────────────────────────────────────────────┐
-│  Browser ◀──(WebSocket: chat + confirms + live status)──┐       │
-│  (static chat page served by api)                       ▼       │
-│   ┌─────────┐ terraform apply  ┌──────────────────────────────┐ │
-│   │  iac    │────────────────▶ │          api (FastAPI)       │ │
-│   │ (init,  │                  │ agent loop · tools · gate    │ │
-│   │ exits)  │                  │ action log · sessions · WS   │ │
-│   └────┬────┘                  └───┬───────────┬──────────────┘ │
-│        │ creates tables            │           ▲                │
-│        ▼                           ▼           │ webhook        │
-│   ┌────────────┐             ┌────────────┐    │ (status_changed│
-│   │   floci    │◀────────────│ mock-uber  │────┘  + shared     │
-│   │ DynamoDB   │  (no - api  │ (FastAPI)  │       secret)      │
-│   │ 4 tables   │  only)      │ Guest Rides│                    │
-│   └────────────┘             │ + driver   │                    │
-│                              │   simulator│                    │
-│                              └────────────┘                    │
-└───────────────────────┬─────────────────────┬───────────────────┘
-                        ▼ external            ▼ external
+ +-----------------------------------------------------------------+
+ | Browser <--(WebSocket: chat + confirms + live status)--+       |
+ | (static chat page served by api)                       v       |
+ |  +---------+ terraform apply  +------------------------------+ |
+ |  | iac     |----------------->|          api (FastAPI)       | |
+ |  | (init,  |                  | agent loop + tools + gate    | |
+ |  | exits)  |                  | action log + sessions + WS   | |
+ |  +----+----+                  +---+-----------+--------------+ |
+ |       | creates tables            |           ^                |
+ |       v                           v           | webhook        |
+ |  +------------+             +------------+   | (status_changed|
+ |  | floci      |<------------| mock-uber  |---+  + shared      |
+ |  | DynamoDB   |  (no - api  | (FastAPI)  |      secret)       |
+ |  | 4 tables   |  only)      | Guest Rides|                    |
+ |  +------------+             | + driver   |                    |
+ |                               | simulator  |                    |
+ |                               +------------+                    |
+ +-----------------------+---------------------+-------------------+
+                         v external            v external
                   OpenRouter API         SG OneMap API
-             (glm-4.5-air → minimax-m2)  (geocoding, token)
+             (glm-4.5-air -> minimax-m2) (geocoding, token)
 ```
 
 ## Prerequisites and environment

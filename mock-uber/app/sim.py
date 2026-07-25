@@ -10,7 +10,8 @@ from app.models import TripStatus, WebhookEvent
 
 
 logger = logging.getLogger(__name__)
-DETERMINISTIC_OBSERVATION_TIMEOUT = 0.25
+# ponytail: 2s interaction window; explicit simulator step controls only if browser flows outgrow this window.
+DETERMINISTIC_OBSERVATION_TIMEOUT = 2.0
 
 
 class Simulator:
