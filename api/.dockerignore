@@ -1,5 +1,4 @@
 .env
 __pycache__/
 *.pyc
-tests/
 .pytest_cache/
