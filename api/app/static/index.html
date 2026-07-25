@@ -50,11 +50,13 @@
       const confirmations = new Map();
       const trips = new Map();
       const sessionKey = "route-buddy-session-id";
+      const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const confirmationResults = new Set(["executed", "dismissed", "expired", "failed"]);
       let sessionId = localStorage.getItem(sessionKey);
       let socket;
       let reconnectDelay = 1000;
 
-      if (!sessionId) {
+      if (!UUID_V4.test(sessionId || "")) {
         sessionId = crypto.randomUUID();
         localStorage.setItem(sessionKey, sessionId);
       }
@@ -103,9 +105,15 @@
         return { dismissed: "Dismissed", expired: "Expired", failed: "Failed" }[result] || "Resolved";
       }
 
-      function resolveConfirmation(token, result) {
+      function isConfirmationResult(result) {
+        return result && typeof result === "object" && confirmationResults.has(result.result);
+      }
+
+      function resolveConfirmation(token, result, authoritative = false) {
         const confirmation = confirmations.get(token);
         if (!confirmation) return;
+        if (confirmation.websocketResolved && !authoritative) return;
+        if (authoritative) confirmation.websocketResolved = true;
         clearInterval(confirmation.timer);
         confirmation.confirm.disabled = true;
         confirmation.dismiss.disabled = true;
@@ -142,7 +150,15 @@
           }
           expiry.textContent = `Expires in ${seconds}s`;
         };
-        const confirmation = { card, action, state, confirm, dismiss, timer: setInterval(expire, 1000) };
+        const confirmation = {
+          card,
+          action,
+          state,
+          confirm,
+          dismiss,
+          timer: setInterval(expire, 1000),
+          websocketResolved: false,
+        };
         confirmations.set(message.token, confirmation);
         expire();
 
@@ -156,10 +172,14 @@
               body: JSON.stringify({ token: message.token, decision }),
             });
             const result = await response.json();
+            if (!response.ok || !isConfirmationResult(result)) throw new Error("Invalid confirmation response");
             resolveConfirmation(message.token, result.result);
           } catch (error) {
             console.warn("Confirmation failed", error);
-            resolveConfirmation(message.token, "failed");
+            const confirmation = confirmations.get(message.token);
+            if (confirmation && !confirmation.websocketResolved) {
+              confirmation.state.textContent = "Confirmation request failed - waiting for update";
+            }
           }
         };
         confirm.addEventListener("click", () => decide("confirm"));
@@ -167,7 +187,7 @@
       }
 
       function renderConfirmationResolved(message) {
-        resolveConfirmation(message.token, message.result);
+        resolveConfirmation(message.token, message.result, true);
       }
 
       function formatStatus(status) {
