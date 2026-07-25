@@ -44,13 +44,15 @@ test behavior in proportion to risk, and leave `main` releasable.
 - Before delivery, verify every new path follows this convention. Naming consistency is a
   required acceptance check, not optional cleanup.
 
-## Status: PLANNED, IMPLEMENTATION NOT STARTED
+## Status: IMPLEMENTATION STARTED (RB-101 foundation)
 
-There is no application code yet - only requirements, design, contracts, and issue-backed
-implementation plans. Everything under
-"Intended shape" below is a *decision*, not something you can read in the tree. When you build
-a piece, replace its bullet here with what actually exists (paths, module names). Never describe
-something as present when it isn't.
+RB-101 provides the Compose and Terraform foundation (`docker-compose.yml`, `infra/`), API
+skeleton and shared contracts (`api/app/`), service Dockerfiles, and the initial mock-Uber health
+placeholder (`mock-uber/app/main.py`). API health, registry, and log-redaction tests live in
+`api/tests/`. Compose startup, DynamoDB persistence across a Floci restart, and a no-change
+Terraform re-apply have been verified.
+
+Everything under "Intended shape" below remains a decision unless the paths above say otherwise.
 
 ## Intended shape
 
@@ -107,15 +109,13 @@ chat UI ──▶ FastAPI ──▶ agent loop ──▶ tools ──▶ provide
 - **Multi-turn state**: the conversation is stateful (follow-ups like "cancel that one" must
   resolve). Keep resolution explicit against the action log / a session record - don't rely on
   the LLM remembering an ID.
-- No test framework is set up yet. When you add the first non-trivial logic, leave one runnable
-  check next to it; don't scaffold a suite ahead of need.
+- API tests use pytest. Keep one focused runnable check beside new non-trivial logic; don't
+  scaffold a suite ahead of need.
 
 ## Commands
 
-Nothing to run yet. As soon as the container stack exists, the canonical entry points go here:
+The canonical stack entry point is:
 
 ```bash
 docker compose up          # whole system, one command (the requirement)
 ```
-
-Add real commands to this block when they exist - not placeholders.
