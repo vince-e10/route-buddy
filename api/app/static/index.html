@@ -2,7 +2,249 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Route Buddy</title>
+    <style>
+      :root { color: #172033; font-family: system-ui, sans-serif; background: #f4f7fb; }
+      body { margin: 0; }
+      main { max-width: 720px; min-height: 100vh; margin: auto; padding: 24px; box-sizing: border-box; }
+      header { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
+      h1 { font-size: 1.5rem; margin: 0; }
+      #status-dot { width: 10px; height: 10px; border-radius: 50%; background: #c62828; }
+      #status-dot.connected { background: #188038; }
+      #messages { display: grid; gap: 12px; padding-bottom: 84px; }
+      .bubble, .card, .toast { border-radius: 12px; padding: 12px; }
+      .bubble { max-width: 80%; background: white; box-shadow: 0 1px 2px #1720331f; }
+      .user { justify-self: end; background: #d9ecff; }
+      .card { background: white; box-shadow: 0 1px 3px #1720331f; }
+      .confirmation { border: 2px solid #f0b429; }
+      .resolved { border-color: #829ab1; }
+      .toast { background: #ffe5e5; color: #a61b1b; }
+      .details, .steps { display: grid; gap: 4px; margin: 8px 0 0; }
+      .steps { grid-template-columns: repeat(5, 1fr); list-style: none; padding: 0; font-size: .78rem; }
+      .steps li { color: #829ab1; text-align: center; }
+      .steps .done, .steps .current { color: #188038; font-weight: 700; }
+      .actions { display: flex; gap: 8px; margin-top: 12px; }
+      button { border: 0; border-radius: 8px; padding: 8px 12px; background: #146ebe; color: white; cursor: pointer; }
+      button.secondary { background: #66788a; }
+      button:disabled { cursor: default; opacity: .6; }
+      form { position: fixed; bottom: 0; left: 0; right: 0; display: flex; gap: 8px; max-width: 720px; margin: auto; padding: 16px 24px; box-sizing: border-box; background: #f4f7fb; }
+      input { min-width: 0; flex: 1; border: 1px solid #829ab1; border-radius: 8px; padding: 10px; font: inherit; }
+    </style>
   </head>
-  <body>Route Buddy - UI arrives in #7</body>
+  <body>
+    <main>
+      <header><span id="status-dot" aria-label="Disconnected"></span><h1>Route Buddy</h1></header>
+      <section id="messages" aria-live="polite"></section>
+    </main>
+    <form id="message-form">
+      <input id="message-input" aria-label="Message" autocomplete="off" placeholder="Where would you like to go?">
+      <button type="submit">Send</button>
+    </form>
+    <script>
+      const messages = document.getElementById("messages");
+      const statusDot = document.getElementById("status-dot");
+      const form = document.getElementById("message-form");
+      const input = document.getElementById("message-input");
+      const confirmations = new Map();
+      const trips = new Map();
+      const sessionKey = "route-buddy-session-id";
+      let sessionId = localStorage.getItem(sessionKey);
+      let socket;
+      let reconnectDelay = 1000;
+
+      if (!sessionId) {
+        sessionId = crypto.randomUUID();
+        localStorage.setItem(sessionKey, sessionId);
+      }
+
+      function element(tag, text, className) {
+        const node = document.createElement(tag);
+        if (text !== undefined) node.textContent = text;
+        if (className) node.className = className;
+        return node;
+      }
+
+      function append(node) {
+        messages.append(node);
+        node.scrollIntoView({ block: "nearest" });
+      }
+
+      function setConnected(connected) {
+        statusDot.classList.toggle("connected", connected);
+        statusDot.setAttribute("aria-label", connected ? "Connected" : "Disconnected");
+      }
+
+      function addDetail(card, label, value) {
+        const detail = element("div", undefined, "details");
+        detail.append(element("strong", label));
+        detail.append(element("span", String(value ?? "")));
+        card.append(detail);
+      }
+
+      function renderAssistant(message) {
+        append(element("div", message.text ?? "", "bubble"));
+      }
+
+      function renderQuotes(message) {
+        for (const quote of message.items || []) {
+          const card = element("article", undefined, "card");
+          card.append(element("strong", quote.product_name ?? ""));
+          addDetail(card, "Price", quote.price_display);
+          addDetail(card, "Pickup", `${quote.pickup_eta_minutes ?? ""} min`);
+          addDetail(card, "Ride", `${quote.duration_minutes ?? ""} min`);
+          append(card);
+        }
+      }
+
+      function confirmationLabel(action, result) {
+        if (result === "executed") return action === "cancel" ? "Canceled" : "Booked";
+        return { dismissed: "Dismissed", expired: "Expired", failed: "Failed" }[result] || "Resolved";
+      }
+
+      function resolveConfirmation(token, result) {
+        const confirmation = confirmations.get(token);
+        if (!confirmation) return;
+        clearInterval(confirmation.timer);
+        confirmation.confirm.disabled = true;
+        confirmation.dismiss.disabled = true;
+        confirmation.state.textContent = confirmationLabel(confirmation.action, result);
+        confirmation.card.classList.add("resolved");
+      }
+
+      function renderConfirmationRequest(message) {
+        const summary = message.summary || {};
+        const card = element("article", undefined, "card confirmation");
+        const action = message.action === "cancel" ? "cancel" : "book";
+        const state = element("strong", action === "cancel" ? "Confirm cancellation" : "Confirm booking");
+        const confirm = element("button", "Confirm");
+        const dismiss = element("button", "Dismiss", "secondary");
+        const actions = element("div", undefined, "actions");
+        const expiry = element("p");
+        const expiryAt = Date.parse(summary.expires_at || "");
+
+        card.append(state);
+        addDetail(card, "Product", summary.product_name);
+        addDetail(card, "Price", summary.price_display);
+        addDetail(card, "Route", `${summary.pickup_label ?? ""} -> ${summary.dropoff_label ?? ""}`);
+        card.append(expiry);
+        actions.append(confirm, dismiss);
+        card.append(actions);
+        append(card);
+
+        const expire = () => {
+          const seconds = Math.max(0, Math.ceil((expiryAt - Date.now()) / 1000));
+          if (!Number.isFinite(seconds) || seconds === 0) {
+            resolveConfirmation(message.token, "expired");
+            state.textContent = "Expired - ask again";
+            return;
+          }
+          expiry.textContent = `Expires in ${seconds}s`;
+        };
+        const confirmation = { card, action, state, confirm, dismiss, timer: setInterval(expire, 1000) };
+        confirmations.set(message.token, confirmation);
+        expire();
+
+        const decide = async (decision) => {
+          confirm.disabled = true;
+          dismiss.disabled = true;
+          try {
+            const response = await fetch("/confirm", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token: message.token, decision }),
+            });
+            const result = await response.json();
+            resolveConfirmation(message.token, result.result);
+          } catch (error) {
+            console.warn("Confirmation failed", error);
+            resolveConfirmation(message.token, "failed");
+          }
+        };
+        confirm.addEventListener("click", () => decide("confirm"));
+        dismiss.addEventListener("click", () => decide("dismiss"));
+      }
+
+      function renderConfirmationResolved(message) {
+        resolveConfirmation(message.token, message.result);
+      }
+
+      function formatStatus(status) {
+        return String(status || "").replaceAll("_", " ");
+      }
+
+      function renderTripUpdate(message) {
+        let card = trips.get(message.trip_id);
+        if (!card) {
+          card = element("article", undefined, "card");
+          trips.set(message.trip_id, card);
+          append(card);
+        }
+        card.replaceChildren();
+        card.append(element("strong", `Trip ${message.trip_id ?? ""}`));
+        const steps = ["processing", "accepted", "arriving", "in_progress", "completed"];
+        const current = steps.indexOf(message.status);
+        const stepper = element("ol", undefined, "steps");
+        for (const step of steps) {
+          const index = steps.indexOf(step);
+          const className = index < current ? "done" : index === current ? "current" : "";
+          stepper.append(element("li", formatStatus(step), className));
+        }
+        card.append(stepper);
+        addDetail(card, "Status", formatStatus(message.status));
+        addDetail(card, "Product", message.product_name);
+        addDetail(card, "Price", message.price_display);
+        if (message.driver) addDetail(card, "Driver", `${message.driver.name} (${message.driver.rating})`);
+      }
+
+      function renderError(message) {
+        append(element("div", message.message ?? "", "toast"));
+      }
+
+      const renderers = {
+        assistant_msg: renderAssistant,
+        quotes: renderQuotes,
+        confirmation_request: renderConfirmationRequest,
+        confirmation_resolved: renderConfirmationResolved,
+        trip_update: renderTripUpdate,
+        error: renderError,
+      };
+
+      function connect() {
+        const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        socket = new WebSocket(`${protocol}//${location.host}/ws?session_id=${encodeURIComponent(sessionId)}`);
+        socket.addEventListener("open", () => {
+          setConnected(true);
+          reconnectDelay = 1000;
+        });
+        socket.addEventListener("message", (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            const render = renderers[message.type];
+            if (render) render(message);
+            else console.warn("Unknown message type", message.type);
+          } catch (error) {
+            console.warn("Invalid server message", error);
+          }
+        });
+        socket.addEventListener("close", () => {
+          setConnected(false);
+          window.setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 8000);
+        });
+      }
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const text = input.value.trim();
+        if (!text || !socket || socket.readyState !== WebSocket.OPEN) return;
+        append(element("div", text, "bubble user"));
+        socket.send(JSON.stringify({ type: "user_msg", text }));
+        input.value = "";
+      });
+
+      connect();
+    </script>
+  </body>
 </html>
