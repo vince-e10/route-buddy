@@ -29,6 +29,19 @@ def trip_payload(estimate, **changes):
     return payload
 
 
+def poll_trip_statuses(client, headers, request_id, initial_status):
+    statuses = [initial_status]
+    drivers = {}
+    for _ in range(10):
+        trip = client.get(f"/v1/guests/trips/{request_id}", headers=headers).json()
+        if trip["status"] != statuses[-1]:
+            statuses.append(trip["status"])
+            drivers[trip["status"]] = trip["driver"]
+        if trip["status"] == "completed" or trip["status"].endswith("canceled") or trip["status"] == "no_drivers_available":
+            break
+    return statuses, drivers
+
+
 def test_trip_creation_validates_product_fare_and_guest(client, auth_headers):
     quote = estimate(client, auth_headers)
     assert client.post(
@@ -75,6 +88,16 @@ def test_trip_get_and_delete_use_contract_shapes(client, auth_headers, monkeypat
     assert client.get(f"/v1/guests/trips/{request_id}", headers=auth_headers).json()["request_id"] == request_id
     assert client.delete(f"/v1/guests/trips/{request_id}", headers=auth_headers).json()["status"] == "rider_canceled"
     assert client.get("/v1/guests/trips/req_missing", headers=auth_headers).json() == {"code": "not_found"}
+
+
+def test_deterministic_trip_exposes_every_status_through_public_routes(client, auth_headers):
+    created = client.post(
+        "/v1/guests/trips", headers=auth_headers, json=trip_payload(estimate(client, auth_headers))
+    ).json()
+    statuses, drivers = poll_trip_statuses(client, auth_headers, created["request_id"], created["status"])
+
+    assert statuses == ["processing", "accepted", "arriving", "in_progress", "completed"]
+    assert all(drivers[status] is not None for status in statuses[1:])
 
 
 @pytest.mark.asyncio

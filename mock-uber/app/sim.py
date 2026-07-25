@@ -15,8 +15,11 @@ logger = logging.getLogger(__name__)
 class Simulator:
     def __init__(self, store):
         self.store = store
+        self._observed: dict[str, asyncio.Event] = {}
 
     async def start(self, trip):
+        if os.getenv("MOCK_DETERMINISTIC") == "1":
+            self._observed[trip.request_id] = asyncio.Event()
         task = asyncio.create_task(self._run(trip.request_id, trip.scenario))
         await self.store.set_task(trip.request_id, task)
 
@@ -26,8 +29,18 @@ class Simulator:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
-    async def _delay(self, seconds):
+    async def observe(self, request_id):
+        event = self._observed.get(request_id)
+        if event is not None:
+            event.set()
+
+    async def _delay(self, seconds, request_id):
         if os.getenv("MOCK_DETERMINISTIC") == "1":
+            event = self._observed.get(request_id)
+            if event is not None:
+                await event.wait()
+                event.clear()
+            await asyncio.sleep(0)
             return
         speed = float(os.getenv("SIM_SPEED", "1.0"))
         await asyncio.sleep(seconds / (speed if speed > 0 else 1.0))
@@ -45,22 +58,22 @@ class Simulator:
 
     async def _run(self, request_id, scenario):
         try:
-            await self._delay(3)
+            await self._delay(3, request_id)
             if scenario == "no_drivers":
                 await self._advance(request_id, TripStatus.no_drivers_available)
                 return
             if not await self._advance(request_id, TripStatus.accepted, await self.store.next_driver()):
                 return
-            await self._delay(8)
+            await self._delay(8, request_id)
             if scenario == "driver_cancel":
                 await self._advance(request_id, TripStatus.driver_canceled)
                 return
             if not await self._advance(request_id, TripStatus.arriving):
                 return
-            await self._delay(10)
+            await self._delay(10, request_id)
             if not await self._advance(request_id, TripStatus.in_progress):
                 return
-            await self._delay(20)
+            await self._delay(20, request_id)
             await self._advance(request_id, TripStatus.completed)
         except asyncio.CancelledError:
             return

@@ -116,7 +116,9 @@ async def get_trip(request_id: str):
     trip = await app.state.store.get_trip(request_id)
     if trip is None:
         return JSONResponse({"code": "not_found"}, status_code=404)
-    return trip_response(trip)
+    response = trip_response(trip)
+    await app.state.simulator.observe(request_id)
+    return response
 
 
 @app.delete("/v1/guests/trips/{request_id}", response_model=TripResponse)

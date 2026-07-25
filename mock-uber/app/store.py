@@ -38,8 +38,7 @@ class Store:
         self.fares: dict[str, Fare] = {}
         self.trips: dict[str, TripRecord] = {}
         self.tasks: dict[str, asyncio.Task] = {}
-        self.no_drivers = False
-        self.driver_cancel = False
+        self.pending_scenario: str | None = None
         self.surge_multiplier = 1.0
         self.driver_index = 0
 
@@ -60,9 +59,8 @@ class Store:
 
     async def create_trip(self, product_id, fare_id, pickup, dropoff, guest, surge_multiplier):
         async with self.lock:
-            scenario = "no_drivers" if self.no_drivers else "driver_cancel" if self.driver_cancel else None
-            self.no_drivers = False
-            self.driver_cancel = False
+            scenario = self.pending_scenario
+            self.pending_scenario = None
             fare = self.fares[fare_id]
             request_id = f"req_{uuid.uuid4().hex}"
             trip = TripRecord(
@@ -120,15 +118,12 @@ class Store:
 
     async def apply_scenario(self, scenario, surge_multiplier=None):
         async with self.lock:
-            if scenario == "no_drivers":
-                self.no_drivers = True
-            elif scenario == "driver_cancel":
-                self.driver_cancel = True
+            if scenario in {"no_drivers", "driver_cancel"}:
+                self.pending_scenario = scenario
             elif scenario == "surge":
                 self.surge_multiplier = surge_multiplier if surge_multiplier is not None else 2.0
             elif scenario == "reset":
-                self.no_drivers = False
-                self.driver_cancel = False
+                self.pending_scenario = None
                 self.surge_multiplier = 1.0
 
     async def cancel_and_drain_tasks(self):
