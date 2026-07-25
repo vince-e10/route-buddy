@@ -35,6 +35,9 @@ services:
   mock-uber:
     build: ./mock-uber
     env_file: .env
+    environment:
+      MOCK_DETERMINISTIC: ${MOCK_DETERMINISTIC:-0}
+      WEBHOOK_SHARED_SECRET: ${WEBHOOK_SHARED_SECRET:-}
     healthcheck:
       test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8001/healthz')"]
       interval: 2s
@@ -44,6 +47,9 @@ services:
   api:
     build: ./api
     env_file: .env
+    environment:
+      LLM_MODE: ${LLM_MODE:-openrouter}
+      WEBHOOK_SHARED_SECRET: ${WEBHOOK_SHARED_SECRET:-}
     ports:
       - "8000:8000"
     healthcheck:

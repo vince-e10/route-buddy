@@ -15,27 +15,10 @@ jobs:
       FLOCI_STORAGE_MODE: memory
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare local environment
-        run: cp .env.example .env
-      - name: Validate Compose
-        run: docker compose config --quiet
-      - name: Build services
-        run: docker compose build
-      - name: Start stack
-        run: docker compose up -d
-      - name: Wait for infrastructure and health checks
-        run: |
-          for attempt in {1..45}; do
-            iac_status=$(docker inspect "$(docker compose ps -a -q iac)" --format '{{.State.Status}} {{.State.ExitCode}}' 2>/dev/null || true)
-            if [ "$iac_status" = "exited 0" ] && curl --fail --silent http://localhost:8000/healthz >/dev/null && docker compose exec -T api python -c "from urllib.request import urlopen; urlopen('http://mock-uber:8001/healthz')" && docker compose exec -T api python -c "import boto3; tables=set(boto3.client('dynamodb').list_tables()['TableNames']); assert tables == {'sessions', 'trips', 'action_log', 'pending_actions'}, tables"; then
-              exit 0
-            fi
-            sleep 2
-          done
-          docker compose ps
-          exit 1
-      - name: Run API tests
-        run: docker compose exec -T api python -m pytest tests -v
+      - name: Run cold release gate
+        run: scripts/e2e.sh
+      - name: Repeat cold release gate
+        run: scripts/e2e.sh
       - name: Dump container logs
         if: failure()
         run: docker compose logs --no-color

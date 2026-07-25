@@ -6,3 +6,4 @@ boto3==1.43.56
 pytest==9.1.1
 pytest-asyncio==1.4.0
 respx==0.23.1
+websockets==15.0.1

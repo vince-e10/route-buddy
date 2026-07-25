@@ -10,20 +10,26 @@ _Docs:_ all project docs live in this `docs/` folder alongside the code (owner d
 this file (live status).
 
 ## Current State
-_Last updated: 2026-07-25_
+_Last updated: 2026-07-26_
 
 **Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, DynamoDB on an AWS-compatible local emulator, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
-**Status:** RB-100 and its decision PR are merged. RB-101 is implemented and locally verified in
-[PR #13](https://github.com/vince-e10/route-buddy/pull/13). Its required CI check has proven both
-failure and success, and the strict `main` ruleset now requires that check.
-**Next step:** Review and merge [PR #13](https://github.com/vince-e10/route-buddy/pull/13), then
-start the independent wave-2 issues.
+**Status:** MVP implemented. The live deterministic integration suite verifies the public
+WebSocket and REST flow, append-only action log, redaction, Compose security posture, and the
+full mock-Uber lifecycle.
+**Next step:** Owner demo, then production-hardening backlog review.
 **Open questions:**
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
 - Uber partner approval timeline - business, needed only for real-provider swap
 
 ## Log
+
+### 2026-07-26 - RB-107 integration release gate completed
+- Added two cold deterministic Compose release-gate runs for API, mock-Uber, live WebSocket, and
+  security tests; each run tears down containers and volumes.
+- Verified search, quote, confirm-book, lifecycle updates, dismiss, cancel, no-driver, token
+  replay, audit-log, and phone-redaction behavior through public surfaces.
+- Added the local demo command, release documentation, and explicit MVP limitation record.
 
 ### 2026-07-25 - RB-101 PR opened and merge protection enabled
 - Opened [PR #13](https://github.com/vince-e10/route-buddy/pull/13) with the locally verified
