@@ -25,7 +25,7 @@ services:
     environment:
       TF_DATA_DIR: /terraform-data
     volumes:
-      - ./infra:/infra
+      - ./infra:/infra:ro
       - terraform-state:/terraform-state
       - terraform-data:/terraform-data
     depends_on:
