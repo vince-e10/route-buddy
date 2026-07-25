@@ -1,0 +1,60 @@
+services:
+  floci:
+    image: floci/floci:1.5.33
+    env_file: .env
+    environment:
+      FLOCI_STORAGE_MODE: ${FLOCI_STORAGE_MODE:-persistent}
+      FLOCI_STORAGE_PERSISTENT_PATH: /app/data
+    volumes:
+      - floci-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  iac:
+    image: hashicorp/terraform:1.9
+    env_file: .env
+    entrypoint: ["/bin/sh", "-c"]
+    command: terraform init -input=false && terraform apply -input=false -auto-approve
+    working_dir: /infra/local
+    environment:
+      TF_DATA_DIR: /terraform-data
+    volumes:
+      - ./infra:/infra
+      - terraform-state:/terraform-state
+      - terraform-data:/terraform-data
+    depends_on:
+      floci:
+        condition: service_healthy
+
+  mock-uber:
+    build: ./mock-uber
+    env_file: .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8001/healthz')"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  api:
+    build: ./api
+    env_file: .env
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8000/healthz')"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    depends_on:
+      iac:
+        condition: service_completed_successfully
+      mock-uber:
+        condition: service_started
+
+volumes:
+  floci-data:
+  terraform-state:
+  terraform-data:
