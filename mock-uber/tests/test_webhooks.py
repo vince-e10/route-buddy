@@ -29,6 +29,7 @@ async def test_webhook_retries_twice_then_succeeds_in_exactly_three_attempts(mon
 async def test_happy_lifecycle_emits_ordered_webhooks_with_driver_and_secret(monkeypatch):
     monkeypatch.setenv("MOCK_DETERMINISTIC", "1")
     monkeypatch.setenv("WEBHOOK_SHARED_SECRET", "test-secret")
+    monkeypatch.setenv("UBER_ORG_UUID", "test-org")
     store = Store()
     simulator = Simulator(store)
     delivered = []
@@ -62,5 +63,9 @@ async def test_happy_lifecycle_emits_ordered_webhooks_with_driver_and_secret(mon
     assert all(item[2].driver is not None for item in delivered)
     assert len({item[0]["event_id"] for item in delivered}) == 4
     assert all(item[0]["event_id"].startswith("evt_") for item in delivered)
+    assert all(item[0]["event_type"] == "guests.trips.status_changed" for item in delivered)
+    assert all(item[0]["resource_href"] == f"http://mock-uber:8001/v1/guests/trips/{trip.request_id}" for item in delivered)
+    assert all(item[0]["meta"]["user_id"] == "mock-user" for item in delivered)
+    assert all(item[0]["meta"]["org_uuid"] == "test-org" for item in delivered)
     assert all(item[0]["meta"]["resource_id"] == trip.request_id for item in delivered)
     assert all(item[1]["X-Webhook-Secret"] == "test-secret" for item in delivered)
