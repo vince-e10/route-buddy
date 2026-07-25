@@ -21,3 +21,7 @@ def test_no_drivers_and_driver_cancel_are_consumed_by_next_trip(client, auth_hea
         response = client.post("/v1/guests/trips", headers=auth_headers, json=trip_payload(estimate(client, auth_headers)))
         request_id = response.json()["request_id"]
         assert client.get(f"/v1/guests/trips/{request_id}", headers=auth_headers).json()["status"] == expected
+
+
+def test_scenario_rejects_unknown_name(client):
+    assert client.post("/_sim/scenario", json={"scenario": "unknown"}).status_code == 422

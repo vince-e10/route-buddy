@@ -1,4 +1,13 @@
+import warnings
+
 import pytest
+from starlette.exceptions import StarletteDeprecationWarning
+
+warnings.filterwarnings(
+    "ignore",
+    message="Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+    category=StarletteDeprecationWarning,
+)
 from starlette.testclient import TestClient
 
 from app.main import app

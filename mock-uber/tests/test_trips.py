@@ -1,3 +1,11 @@
+import pytest
+
+from app.main import app
+from app.models import TripStatus
+from app.sim import Simulator
+from app.store import Store
+
+
 def estimate(client, headers):
     return client.post(
         "/v1/guests/trips/estimates",
@@ -39,6 +47,21 @@ def test_trip_creation_validates_product_fare_and_guest(client, auth_headers):
         headers=auth_headers,
         json=trip_payload(quote, guest={"first_name": "Ada", "last_name": "Lovelace", "phone_number": "bad"}),
     ).json() == {"code": "invalid_guest"}
+    missing_guest = trip_payload(quote)
+    del missing_guest["guest"]
+    response = client.post("/v1/guests/trips", headers=auth_headers, json=missing_guest)
+    assert response.status_code == 400
+    assert response.json() == {"code": "invalid_guest"}
+
+
+@pytest.mark.parametrize("field", ["first_name", "last_name", "phone_number"])
+def test_trip_creation_rejects_each_missing_guest_field(client, auth_headers, field):
+    quote = estimate(client, auth_headers)
+    payload = trip_payload(quote)
+    del payload["guest"][field]
+    response = client.post("/v1/guests/trips", headers=auth_headers, json=payload)
+    assert response.status_code == 400
+    assert response.json() == {"code": "invalid_guest"}
 
 
 def test_trip_get_and_delete_use_contract_shapes(client, auth_headers, monkeypatch):
@@ -52,3 +75,55 @@ def test_trip_get_and_delete_use_contract_shapes(client, auth_headers, monkeypat
     assert client.get(f"/v1/guests/trips/{request_id}", headers=auth_headers).json()["request_id"] == request_id
     assert client.delete(f"/v1/guests/trips/{request_id}", headers=auth_headers).json()["status"] == "rider_canceled"
     assert client.get("/v1/guests/trips/req_missing", headers=auth_headers).json() == {"code": "not_found"}
+
+
+@pytest.mark.asyncio
+async def test_no_drivers_has_no_driver_and_driver_cancel_follows_acceptance(monkeypatch):
+    monkeypatch.setenv("MOCK_DETERMINISTIC", "1")
+    for scenario, expected in (("no_drivers", TripStatus.no_drivers_available), ("driver_cancel", TripStatus.driver_canceled)):
+        store = Store()
+        simulator = Simulator(store)
+        statuses = []
+
+        async def capture(payload):
+            statuses.append(payload["meta"]["status"])
+
+        monkeypatch.setattr(simulator, "deliver_webhook", capture)
+        fare_id, fare = await store.issue_fare(
+            "uberx-sg", 4.0, {"latitude": 1, "longitude": 1}, {"latitude": 2, "longitude": 2}, 1.0
+        )
+        await store.apply_scenario(scenario)
+        trip = await store.create_trip(
+            "uberx-sg", fare_id, {"latitude": 1, "longitude": 1}, {"latitude": 2, "longitude": 2},
+            {"first_name": "Ada", "last_name": "Lovelace", "phone_number": "+6591234567"}, fare.surge_multiplier,
+        )
+        await simulator._run(trip.request_id, trip.scenario)
+        current = await store.get_trip(trip.request_id)
+        assert current.status == expected
+        if scenario == "no_drivers":
+            assert current.driver is None
+            assert statuses == ["no_drivers_available"]
+        else:
+            assert current.driver is not None
+            assert statuses == ["accepted", "driver_canceled"]
+
+
+def test_delete_accepts_accepted_trip_and_rejects_completed_trip(client, auth_headers, monkeypatch):
+    async def do_not_start(_trip):
+        return None
+
+    monkeypatch.setattr(app.state.simulator, "start", do_not_start)
+    first = client.post("/v1/guests/trips", headers=auth_headers, json=trip_payload(estimate(client, auth_headers))).json()
+    client.portal.call(app.state.store.transition_trip, first["request_id"], TripStatus.accepted, {"name": "Aisha Tan", "rating": 4.6})
+    canceled = client.delete(f"/v1/guests/trips/{first['request_id']}", headers=auth_headers)
+    assert canceled.status_code == 200
+    assert canceled.json()["status"] == "rider_canceled"
+
+    second = client.post("/v1/guests/trips", headers=auth_headers, json=trip_payload(estimate(client, auth_headers))).json()
+    client.portal.call(app.state.store.transition_trip, second["request_id"], TripStatus.accepted, {"name": "Aisha Tan", "rating": 4.6})
+    client.portal.call(app.state.store.transition_trip, second["request_id"], TripStatus.arriving)
+    client.portal.call(app.state.store.transition_trip, second["request_id"], TripStatus.in_progress)
+    client.portal.call(app.state.store.transition_trip, second["request_id"], TripStatus.completed)
+    rejected = client.delete(f"/v1/guests/trips/{second['request_id']}", headers=auth_headers)
+    assert rejected.status_code == 409
+    assert rejected.json() == {"code": "not_cancellable", "status": "completed"}

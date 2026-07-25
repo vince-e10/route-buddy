@@ -32,6 +32,7 @@ class TripRecord:
 
 
 class Store:
+    # ponytail: in-memory store, swap for redis if the mock ever needs restarts mid-demo
     def __init__(self):
         self.lock = asyncio.Lock()
         self.fares: dict[str, Fare] = {}

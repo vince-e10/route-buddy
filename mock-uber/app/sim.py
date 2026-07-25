@@ -6,7 +6,7 @@ import uuid
 
 import httpx
 
-from app.models import TripStatus
+from app.models import TripStatus, WebhookEvent
 
 
 logger = logging.getLogger(__name__)
@@ -66,18 +66,18 @@ class Simulator:
             return
 
     async def emit(self, trip):
-        payload = {
-            "event_id": f"evt_{uuid.uuid4().hex}",
-            "event_time": int(time.time()),
-            "event_type": "guests.trips.status_changed",
-            "resource_href": f"http://mock-uber:8001/v1/guests/trips/{trip.request_id}",
-            "meta": {
+        payload = WebhookEvent(
+            event_id=f"evt_{uuid.uuid4().hex}",
+            event_time=int(time.time()),
+            event_type="guests.trips.status_changed",
+            resource_href=f"http://mock-uber:8001/v1/guests/trips/{trip.request_id}",
+            meta={
                 "user_id": "mock-user",
                 "org_uuid": os.getenv("UBER_ORG_UUID", "mock-org-uuid"),
                 "resource_id": trip.request_id,
                 "status": trip.status.value,
             },
-        }
+        ).model_dump(mode="json")
         await self.deliver_webhook(payload)
 
     async def _post_webhook(self, payload):

@@ -6,7 +6,15 @@ import uuid
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.models import EstimateRequest, ScenarioRequest, TripCreateRequest
+from app.models import (
+    CreateTripResponse,
+    EstimatesResponse,
+    EstimateRequest,
+    ScenarioRequest,
+    ScenarioResponse,
+    TripCreateRequest,
+    TripResponse,
+)
 from app.sim import Simulator
 from app.store import Store
 
@@ -44,7 +52,7 @@ def distance_km(pickup, dropoff):
     return radius * 2 * math.asin(math.sqrt(a))
 
 
-@app.post("/v1/guests/trips/estimates")
+@app.post("/v1/guests/trips/estimates", response_model=EstimatesResponse)
 async def estimates(body: EstimateRequest):
     store = app.state.store
     km = distance_km(body.pickup, body.dropoff)
@@ -76,7 +84,7 @@ async def estimates(body: EstimateRequest):
     return {"product_estimates": product_estimates}
 
 
-@app.post("/v1/guests/trips")
+@app.post("/v1/guests/trips", response_model=CreateTripResponse)
 async def create_trip(body: TripCreateRequest):
     store = app.state.store
     products = {item[0] for item in PRODUCTS}
@@ -103,7 +111,7 @@ def trip_response(trip):
     return {"request_id": trip.request_id, "status": trip.status.value, "driver": trip.driver, "pickup": trip.pickup, "destination": trip.dropoff, "client_fare": f"SGD {trip.fare_value:.2f}"}
 
 
-@app.get("/v1/guests/trips/{request_id}")
+@app.get("/v1/guests/trips/{request_id}", response_model=TripResponse)
 async def get_trip(request_id: str):
     trip = await app.state.store.get_trip(request_id)
     if trip is None:
@@ -111,7 +119,7 @@ async def get_trip(request_id: str):
     return trip_response(trip)
 
 
-@app.delete("/v1/guests/trips/{request_id}")
+@app.delete("/v1/guests/trips/{request_id}", response_model=TripResponse)
 async def delete_trip(request_id: str):
     trip = await app.state.store.cancel_trip(request_id)
     if trip is None:
@@ -124,7 +132,7 @@ async def delete_trip(request_id: str):
     return trip_response(trip)
 
 
-@app.post("/_sim/scenario")
+@app.post("/_sim/scenario", response_model=ScenarioResponse)
 async def scenario(body: ScenarioRequest):
     await app.state.store.apply_scenario(body.scenario, body.surge_multiplier)
     return {"applied": body.scenario}
