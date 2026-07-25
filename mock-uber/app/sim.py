@@ -38,7 +38,10 @@ class Simulator:
         if os.getenv("MOCK_DETERMINISTIC") == "1":
             event = self._observed.get(request_id)
             if event is not None:
-                await event.wait()
+                try:
+                    await asyncio.wait_for(event.wait(), timeout=0.05)
+                except TimeoutError:
+                    pass
                 event.clear()
             await asyncio.sleep(0)
             return

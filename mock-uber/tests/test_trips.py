@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from app.main import app
@@ -98,6 +100,17 @@ def test_deterministic_trip_exposes_every_status_through_public_routes(client, a
 
     assert statuses == ["processing", "accepted", "arriving", "in_progress", "completed"]
     assert all(drivers[status] is not None for status in statuses[1:])
+
+
+def test_deterministic_trip_completes_without_get_observations(client, auth_headers):
+    created = client.post(
+        "/v1/guests/trips", headers=auth_headers, json=trip_payload(estimate(client, auth_headers))
+    ).json()
+
+    client.portal.call(asyncio.sleep, 0.3)
+
+    trip = client.get(f"/v1/guests/trips/{created['request_id']}", headers=auth_headers).json()
+    assert trip["status"] == "completed"
 
 
 @pytest.mark.asyncio
