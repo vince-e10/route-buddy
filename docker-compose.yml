@@ -17,7 +17,9 @@ services:
     image: hashicorp/terraform:1.9
     env_file: .env
     entrypoint: ["/bin/sh", "-c"]
-    command: terraform init -input=false && terraform apply -input=false -auto-approve
+    command: >
+      chown nobody:nobody /terraform-state /terraform-data &&
+      exec su nobody -s /bin/sh -c 'terraform init -input=false && terraform apply -input=false -auto-approve'
     working_dir: /infra/local
     environment:
       TF_DATA_DIR: /terraform-data
