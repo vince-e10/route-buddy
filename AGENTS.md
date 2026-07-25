@@ -19,11 +19,11 @@ docs-live-in-the-vault convention - we work on them here):
 
 This file is how to work in the repo.
 
-## Not a git repo (deliberate)
+## Git workflow
 
-This folder is offline scratch: **no git, no commits, no `.gitignore`, no PRs.** Do not run
-`git init` or stage anything until the owner says so. Skip any workflow that assumes a repo
-(worktrees, branches, commit gates).
+This folder is a Git repository. Work on feature branches, validate changes before committing,
+push branches, and open PRs against `main`. Never commit or push directly to `main`; the owner
+merges PRs.
 
 ## Status: EMPTY SCAFFOLD
 

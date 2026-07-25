@@ -1,6 +1,6 @@
 # Route Buddy - Live RFC
 
-_Repos touched:_ route-buddy (vault folder, deliberately not a git repo yet)
+_Repos touched:_ [vince-e10/route-buddy](https://github.com/vince-e10/route-buddy)
 _Ticket(s):_ none
 _Docs:_ all project docs live in this `docs/` folder alongside the code (owner decision
 2026-07-25, overriding the docs-in-vault convention): `high-level-requirements.md` (spec),
@@ -10,14 +10,18 @@ _Docs:_ all project docs live in this `docs/` folder alongside the code (owner d
 _Last updated: 2026-07-25_
 
 **Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, LocalStack->AWS, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
-**Status:** Design approved; execution plan + 7 delegatable tickets written and plan-reviewed ([[execution-plan]], `docs/tasks/RB-101..107`, contracts frozen in [[CONTRACTS]]). No code yet.
-**Next step:** Dispatch RB-101 (wave 1 foundation) to an implementation agent, verify compose skeleton, then waves 2-4 per the execution plan.
+**Status:** Repository initialized; initial project scaffold published in [PR #1](https://github.com/vince-e10/route-buddy/pull/1). Design approved; execution plan + 7 delegatable tickets written and plan-reviewed ([[execution-plan]], `docs/tasks/RB-101..107`, contracts frozen in [[CONTRACTS]]). No code yet.
+**Next step:** Owner merges PR #1, then dispatch RB-101 (wave 1 foundation), verify the compose skeleton, and continue with waves 2-4.
 **Open questions:**
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
 - Uber partner approval timeline - business, needed only for real-provider swap
 
 ## Log
+
+### 2026-07-25 - Repository initialized and scaffold PR opened
+- Initialized the Git repository, connected it to `vince-e10/route-buddy`, and published the planning scaffold in [PR #1](https://github.com/vince-e10/route-buddy/pull/1).
+- Configured local Git authorship for `vince-e10` and GitHub CLI access for PR operations.
 
 ### 2026-07-25 - Execution plan + ticket set written
 - Broke the design into 7 agent-delegatable tickets in 4 waves: RB-101 foundation -> RB-102/103/104 (mock-uber, storage, adapters, parallel) -> RB-105/106 (agent core + gate, WS + UI, parallel) -> RB-107 (live integration, e2e, security verification, README).
