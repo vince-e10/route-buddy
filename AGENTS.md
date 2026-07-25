@@ -49,7 +49,8 @@ test behavior in proportion to risk, and leave `main` releasable.
 RB-101 provides the Compose and Terraform foundation (`docker-compose.yml`, `infra/`), API
 skeleton and shared contracts (`api/app/`), service Dockerfiles, and the initial mock-Uber health
 placeholder (`mock-uber/app/main.py`). API health, registry, and log-redaction tests live in
-`api/tests/`. Compose persistence and Terraform re-apply behavior have not yet been verified.
+`api/tests/`. Compose startup, DynamoDB persistence across a Floci restart, and a no-change
+Terraform re-apply have been verified.
 
 Everything under "Intended shape" below remains a decision unless the paths above say otherwise.
 
