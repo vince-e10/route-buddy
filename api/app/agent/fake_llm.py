@@ -8,7 +8,13 @@ from .llm import LLMResponse, ToolCall
 
 
 class FakeLLM:
-    async def complete(self, messages: list[dict], tools: list[dict]) -> LLMResponse:
+    async def complete(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        *,
+        model: str | None = None,
+    ) -> LLMResponse:
         user_index = max(
             index for index, message in enumerate(messages) if message.get("role") == "user"
         )

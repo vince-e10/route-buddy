@@ -3,7 +3,9 @@
 _Repos touched:_ [vince-e10/route-buddy](https://github.com/vince-e10/route-buddy)
 _Issues:_ [RB-100 #10](https://github.com/vince-e10/route-buddy/issues/10), plus
 [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2) through
-[RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8)
+[RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8), and post-MVP reliability work
+[RB-108 #20](https://github.com/vince-e10/route-buddy/issues/20) through
+[RB-110 #22](https://github.com/vince-e10/route-buddy/issues/22)
 _Docs:_ all project docs live in this `docs/` folder alongside the code (owner decision
 2026-07-25, overriding the docs-in-vault convention): `high-level-requirements.md` (spec),
 `design.md` (approved RFC), `contracts.md` (normative interfaces), `execution-plan.md` (delivery),
@@ -13,16 +15,30 @@ this file (live status).
 _Last updated: 2026-07-26_
 
 **Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, DynamoDB on an AWS-compatible local emulator, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
-**Status:** MVP implemented. The live deterministic integration suite verifies the public
-WebSocket and REST flow, append-only action log, redaction, Compose security posture, and the
-full mock-Uber lifecycle.
-**Next step:** Owner demo, then production-hardening backlog review.
+**Status:** MVP implemented. RB-108 adds a no-dispatch, repeatable live-model reliability
+evaluation covering 34 synthetic cases, including 14 write turns and six recovery cases. Its
+first baseline is partial: the configured Nemotron free route returned HTTP 404, and the
+configured Gemma free route returned HTTP 429. Each non-retryable route stopped after its first
+request. No model response, token usage, cost, or tool dispatch occurred.
+**Next step:** Merge the RB-108 harness, rerun the identical fixture when the configured
+OpenRouter routes are available, then use the completed baseline for RB-109 hardening.
 **Open questions:**
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
 - Uber partner approval timeline - business, needed only for real-provider swap
+- Free-model evaluation availability - Nemotron currently has no usable configured route and
+  Gemma is rate limited; this is provider/quota behavior, not measured model quality
 
 ## Log
+
+### 2026-07-26 - RB-108 reliability harness and partial live baseline
+- Added a committed 34-case golden set and an offline-tested evaluator that pins one model,
+  uses production request construction and tool validation, never dispatches a tool, and records
+  structural, semantic, write, recovery, latency, token, and cost metrics.
+- Requested three passes for each configured model. The retained partial report stopped Nemotron
+  on its first HTTP 404 and Gemma on its first HTTP 429. Total tokens and observed cost were zero.
+- Decision: do not attribute the result to model intelligence and do not activate deterministic
+  write selection from transport failures. Complete the same baseline before RB-109 changes.
 
 ### 2026-07-26 - RB-107 integration release gate completed
 - Added two cold deterministic Compose release-gate runs for API, mock-Uber, live WebSocket, and
