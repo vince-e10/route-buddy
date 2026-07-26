@@ -25,5 +25,6 @@ agent_service = AgentServiceImpl(
     provider=provider,
     geocoder=geocoder,
     llm=llm,
+    fallback_model=settings.openrouter_model_fallback,
 )
 registry.set_agent_service(agent_service)

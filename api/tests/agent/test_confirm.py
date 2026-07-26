@@ -193,6 +193,7 @@ async def test_agent_and_confirm_session_updates_do_not_overwrite_each_other(
         provider=provider,
         geocoder=StubGeocoder(),
         llm=llm,
+        fallback_model="fallback/model",
     )
     agent_task = asyncio.create_task(
         service.handle_user_message(session.session_id, "find changi")
