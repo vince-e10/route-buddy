@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 import boto3
 import pytest
@@ -6,6 +7,7 @@ from boto3.dynamodb.conditions import Key
 
 from app.agent.llm import LLMError, LLMResponse, ToolCall
 from app.agent.loop import AgentServiceImpl
+from app.config import settings
 from app.models import LatLng, Place
 from app.providers.uber import ProviderError
 from app.registry import set_publisher
@@ -293,6 +295,36 @@ async def test_second_structural_rejection_stops_with_safe_reask(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fallback_text", [None, ""])
+async def test_empty_fallback_response_stops_with_one_safe_reask(
+    repos, provider, publisher, fallback_text
+):
+    llm = ScriptedLLM(
+        [
+            LLMResponse(
+                text=None,
+                tool_calls=[ToolCall(id="bad", name="search_places", arguments="{")],
+            ),
+            LLMResponse(text=fallback_text, tool_calls=[]),
+            LLMResponse(text="must not run", tool_calls=[]),
+        ]
+    )
+
+    await service(repos, provider, publisher, llm).handle_user_message("session-1", "x")
+
+    assert [item["model"] for item in llm.calls] == [None, "fallback/model"]
+    assert publisher.messages == [
+        (
+            "session-1",
+            {
+                "type": "assistant_msg",
+                "text": "Sorry, I got stuck - could you rephrase?",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_valid_fallback_tool_returns_later_request_to_primary(
     repos, provider, publisher
 ):
@@ -421,6 +453,96 @@ async def test_structural_rejections_write_one_bounded_requested_verified_pair(
             boto3.resource("dynamodb").Table("pending_actions").scan()["Items"]
             == []
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arguments", "sensitive"),
+    [
+        ('{"query":"call +6591234567","extra":true}', "+6591234567"),
+        ('{"query":"mail rider@example.com","extra":true}', "rider@example.com"),
+        (
+            '{"query":"configured-secret-sentinel","extra":true}',
+            "configured-secret-sentinel",
+        ),
+        (
+            '{"query":"x","x-api-key":"opaque-credential-sentinel"}',
+            "opaque-credential-sentinel",
+        ),
+        (
+            (
+                '{"query":"x","headers":{"nested":{"x":"safe"},'
+                '"x-custom":"header-sentinel"}}'
+            ),
+            "header-sentinel",
+        ),
+        (
+            '{"query":"x","confirmation_token":"confirmation-token-sentinel"}',
+            "confirmation-token-sentinel",
+        ),
+    ],
+)
+async def test_invalid_audit_redacts_sensitive_arguments(
+    repos, provider, publisher, monkeypatch, arguments, sensitive
+):
+    monkeypatch.setattr(
+        "app.agent.loop.settings",
+        replace(
+            settings,
+            openrouter_api_key="",
+            uber_api_token="configured-secret-sentinel",
+        ),
+        raising=False,
+    )
+    llm = ScriptedLLM(
+        [
+            LLMResponse(
+                text=None,
+                tool_calls=[
+                    ToolCall(id="invalid", name="search_places", arguments=arguments)
+                ],
+            ),
+            LLMResponse(text="Recovered.", tool_calls=[]),
+        ]
+    )
+
+    await service(repos, provider, publisher, llm).handle_user_message(
+        "audit-redaction", "x"
+    )
+
+    persisted = _action_rows("audit-redaction")[0]["payload"]["proposals"][0][
+        "arguments"
+    ]
+    assert sensitive not in persisted
+    assert "[REDACTED]" in persisted
+    assert persisted.startswith('{"query"')
+
+
+@pytest.mark.asyncio
+async def test_invalid_audit_redacts_before_final_length_cap(
+    repos, provider, publisher
+):
+    arguments = '{"query":"91234567 ' + "x" * 600
+    llm = ScriptedLLM(
+        [
+            LLMResponse(
+                text=None,
+                tool_calls=[
+                    ToolCall(id="malformed", name="search_places", arguments=arguments)
+                ],
+            ),
+            LLMResponse(text="Recovered.", tool_calls=[]),
+        ]
+    )
+
+    await service(repos, provider, publisher, llm).handle_user_message(
+        "audit-cap", "x"
+    )
+
+    persisted = _action_rows("audit-cap")[0]["payload"]["proposals"][0]["arguments"]
+    assert persisted.startswith('{"query":"[REDACTED] ')
+    assert "91234567" not in persisted
+    assert len(persisted) == 512
 
 
 @pytest.mark.asyncio

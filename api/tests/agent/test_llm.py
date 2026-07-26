@@ -47,6 +47,7 @@ async def test_openrouter_payload_and_response(config):
     assert result.usage.cost == 0.0004
     request = route.calls[0].request
     body = __import__("json").loads(request.content)
+    assert body["model"] == config.openrouter_model_primary
     assert body["models"] == [
         config.openrouter_model_primary,
         config.openrouter_model_fallback,

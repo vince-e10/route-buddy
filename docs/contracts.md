@@ -319,7 +319,7 @@ fare, owned trip, and cancellable trip IDs.
 
 Grounding rules enforced in code (not prompts):
 - `search_places` and `list_session_trips` are always available
-- `get_quotes` is available only with at least two known places; both ID fields enumerate current
+- `get_quotes` is available with at least one known place; both ID fields enumerate current
   `session.places`
 - `book_ride` is available only with an unexpired quote; `fare_id` enumerates those quotes
 - `get_trip_status` enumerates session-owned trips and is absent when there are none

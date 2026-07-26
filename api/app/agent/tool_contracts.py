@@ -106,7 +106,7 @@ def session_tool_schemas(
     enum_values: dict[str, dict[str, list[str]]] = {}
     names = {"search_places", "list_session_trips"}
     place_ids = list(session.places)
-    if len(place_ids) >= 2:
+    if place_ids:
         names.add("get_quotes")
         enum_values["get_quotes"] = {
             "pickup_place_id": place_ids,

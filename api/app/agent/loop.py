@@ -4,7 +4,9 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
+from app.config import settings
 from app.geocode.base import Geocoder
+from app.logging_setup import RedactionFilter
 from app.models import ActionLogEntry, Session
 from app.providers.base import RideProvider
 from app.storage import ActionLogRepo, PendingActionRepo, SessionRepo, TripRepo
@@ -39,6 +41,14 @@ class AgentServiceImpl:
         self._geocoder = geocoder
         self._llm = llm
         self._fallback_model = fallback_model
+        self._redact = RedactionFilter(
+            settings.secret_values
+            + [
+                settings.rider_first_name,
+                settings.rider_last_name,
+                settings.rider_phone,
+            ]
+        ).redact_json
         # ponytail: in-memory rate limiter, single instance; move to DynamoDB counters if we ever scale out
         self._limiter = RateLimiter(20, 60)
 
@@ -93,7 +103,8 @@ class AgentServiceImpl:
                 trips = await self._trip_repo.list_by_session(session.session_id)
                 schemas = session_tool_schemas(session, trips)
                 messages = [{"role": "system", "content": SYSTEM_PROMPT}] + session.messages
-                if correction_pending:
+                was_correction = correction_pending
+                if was_correction:
                     response = await self._llm.complete(
                         messages, schemas, model=self._fallback_model
                     )
@@ -162,6 +173,15 @@ class AgentServiceImpl:
                         correction_pending = True
                         correction_used = True
                     continue
+                if was_correction and not response.text:
+                    await publisher.publish(
+                        session_id,
+                        {
+                            "type": "assistant_msg",
+                            "text": "Sorry, I got stuck - could you rephrase?",
+                        },
+                    )
+                    break
                 if response.text is not None:
                     session.messages.append({"role": "assistant", "content": response.text})
                     await publisher.publish(
@@ -247,7 +267,7 @@ class AgentServiceImpl:
                     "proposals": [
                         {
                             "name": call.name,
-                            "arguments": call.arguments[:512],
+                            "arguments": self._redact(call.arguments)[:512],
                         }
                         for call in calls
                     ]

@@ -14,7 +14,7 @@ from app.agent.tools import (
     handle_search_places,
 )
 from app.agent.tool_contracts import session_tool_schemas
-from app.models import Place, TripStatus
+from app.models import LatLng, Place, TripStatus
 from app.providers.uber import ProviderError
 
 from .conftest import StubGeocoder, make_quote, make_session, make_trip
@@ -91,6 +91,29 @@ def test_session_tool_schemas_omit_tools_without_eligible_values():
         "search_places",
         "list_session_trips",
     ]
+
+
+def test_session_tool_schemas_expose_quotes_with_one_known_place():
+    session = make_session()
+    session.places = {
+        "plc-a": Place(
+            place_id="plc-a",
+            name="A",
+            address="A",
+            postal=None,
+            location=LatLng(lat=1.3, lng=103.8),
+        )
+    }
+
+    schemas = {
+        schema["function"]["name"]: schema["function"]["parameters"]
+        for schema in session_tool_schemas(session, [])
+    }
+
+    assert schemas["get_quotes"]["properties"] == {
+        "pickup_place_id": {"type": "string", "enum": ["plc-a"]},
+        "dropoff_place_id": {"type": "string", "enum": ["plc-a"]},
+    }
 
 
 def context(repos, provider, publisher, geocoder=None):

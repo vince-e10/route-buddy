@@ -74,10 +74,17 @@ class Settings:
     @property
     def secret_values(self) -> list[str]:
         return [
-            self.openrouter_api_key,
-            self.webhook_shared_secret,
-            self.onemap_email,
-            self.onemap_password,
+            value
+            for value in [
+                self.aws_access_key_id,
+                self.aws_secret_access_key,
+                self.uber_api_token,
+                self.openrouter_api_key,
+                self.webhook_shared_secret,
+                self.onemap_email,
+                self.onemap_password,
+            ]
+            if value != "test"
         ]
 
 
