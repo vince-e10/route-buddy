@@ -19,9 +19,13 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="starlette
 class RecordingAgentService:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
+        self.action_calls: list[tuple[str, str, str]] = []
 
     async def handle_user_message(self, session_id: str, text: str) -> None:
         self.calls.append((session_id, text))
+
+    async def propose_action(self, session_id: str, action: str, target_id: str) -> None:
+        self.action_calls.append((session_id, action, target_id))
 
 
 @pytest.fixture(autouse=True)
@@ -57,6 +61,98 @@ def test_user_message_is_dispatched_to_agent_service() -> None:
             socket.send_json({"type": "user_msg", "text": "Find Changi Airport"})
 
     assert service.calls == [(SESSION_ID, "Find Changi Airport")]
+
+
+@pytest.mark.parametrize(
+    ("action", "target_id"),
+    [("book", "fare-exact"), ("cancel", "uber:trip-exact")],
+)
+def test_action_request_uses_connection_session(action: str, target_id: str) -> None:
+    service = RecordingAgentService()
+    registry.set_agent_service(service)
+
+    with app_client() as client:
+        with client.websocket_connect(f"/ws?session_id={SESSION_ID}") as socket:
+            socket.send_json(
+                {"type": "action_request", "action": action, "target_id": target_id}
+            )
+
+    assert service.action_calls == [(SESSION_ID, action, target_id)]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"type": "action_request", "action": "book", "target_id": ""},
+        {"type": "action_request", "action": "book", "target_id": "x" * 201},
+        {"type": "action_request", "action": "delete", "target_id": "x"},
+        {"type": "action_request", "action": "book", "target_id": 1},
+        {
+            "type": "action_request",
+            "action": "book",
+            "target_id": "x",
+            "session_id": SESSION_ID,
+        },
+    ],
+)
+def test_invalid_action_request_is_rejected_without_service_call(message: dict) -> None:
+    service = RecordingAgentService()
+    registry.set_agent_service(service)
+
+    with app_client() as client:
+        with client.websocket_connect(f"/ws?session_id={SESSION_ID}") as socket:
+            socket.send_json(message)
+            assert socket.receive_json() == {
+                "type": "error",
+                "message": "invalid message",
+            }
+
+    assert service.action_calls == []
+
+
+@pytest.mark.parametrize(
+    ("invalid_action", "valid_message", "expected_action_calls", "expected_user_calls"),
+    [
+        (
+            ["book"],
+            {"type": "action_request", "action": "book", "target_id": "fare-valid"},
+            [(SESSION_ID, "book", "fare-valid")],
+            [],
+        ),
+        (
+            {"value": "cancel"},
+            {"type": "user_msg", "text": "still connected"},
+            [],
+            [(SESSION_ID, "still connected")],
+        ),
+    ],
+)
+def test_non_string_action_is_rejected_and_connection_recovers(
+    invalid_action,
+    valid_message,
+    expected_action_calls,
+    expected_user_calls,
+) -> None:
+    service = RecordingAgentService()
+    registry.set_agent_service(service)
+
+    with app_client() as client:
+        with client.websocket_connect(f"/ws?session_id={SESSION_ID}") as socket:
+            socket.send_json(
+                {
+                    "type": "action_request",
+                    "action": invalid_action,
+                    "target_id": "target",
+                }
+            )
+            assert socket.receive_json() == {
+                "type": "error",
+                "message": "invalid message",
+            }
+            socket.send_json(valid_message)
+
+    assert service.action_calls == expected_action_calls
+    assert service.calls == expected_user_calls
 
 
 def test_invalid_type_and_malformed_json_return_errors_then_recover() -> None:

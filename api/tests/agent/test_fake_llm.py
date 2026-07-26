@@ -40,7 +40,7 @@ async def test_search_flow_is_transcript_driven():
 
 
 @pytest.mark.asyncio
-async def test_book_flow_picks_cheapest_quote():
+async def test_book_flow_directs_user_to_exact_quote_cards():
     response = await complete(
         [
             {"role": "user", "content": "book uberx"},
@@ -52,11 +52,13 @@ async def test_book_flow_picks_cheapest_quote():
             },
         ]
     )
-    assert json.loads(response.tool_calls[0].arguments) == {"fare_id": "low"}
+    assert response.tool_calls == []
+    assert "Select" in response.text
+    assert "ride option card" in response.text
 
 
 @pytest.mark.asyncio
-async def test_cancel_flow_picks_latest_cancellable_trip():
+async def test_cancel_flow_reads_trips_then_directs_user_to_exact_trip_card():
     response = await complete(
         [
             {"role": "user", "content": "cancel that"},
@@ -68,8 +70,9 @@ async def test_cancel_flow_picks_latest_cancellable_trip():
             },
         ]
     )
-    assert response.tool_calls[0].name == "cancel_ride"
-    assert json.loads(response.tool_calls[0].arguments) == {"trip_id": "new"}
+    assert response.tool_calls == []
+    assert "Select cancellation" in response.text
+    assert "trip card" in response.text
 
 
 @pytest.mark.asyncio

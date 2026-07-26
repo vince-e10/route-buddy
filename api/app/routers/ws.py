@@ -38,13 +38,23 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 await ws.send_json({"type": "error", "message": "invalid message"})
                 continue
 
-            if not (
+            is_user_message = (
                 isinstance(message, dict)
                 and message.keys() == {"type", "text"}
                 and message["type"] == "user_msg"
                 and isinstance(message["text"], str)
                 and 0 < len(message["text"]) <= 2000
-            ):
+            )
+            is_action_request = (
+                isinstance(message, dict)
+                and message.keys() == {"type", "action", "target_id"}
+                and message["type"] == "action_request"
+                and isinstance(message["action"], str)
+                and message["action"] in {"book", "cancel"}
+                and isinstance(message["target_id"], str)
+                and 0 < len(message["target_id"]) <= 200
+            )
+            if not (is_user_message or is_action_request):
                 await ws.send_json({"type": "error", "message": "invalid message"})
                 continue
 
@@ -53,6 +63,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             except RuntimeError:
                 await ws.send_json({"type": "error", "message": "assistant not available"})
                 continue
-            await agent_service.handle_user_message(session_id, message["text"])
+            if is_user_message:
+                await agent_service.handle_user_message(session_id, message["text"])
+            else:
+                await agent_service.propose_action(
+                    session_id, message["action"], message["target_id"]
+                )
     finally:
         await manager.disconnect(session_id, ws)

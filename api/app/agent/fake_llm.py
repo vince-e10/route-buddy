@@ -2,8 +2,6 @@ import json
 import re
 from uuid import uuid4
 
-from app.models import CANCELLABLE_STATUSES
-
 from .llm import LLMResponse, ToolCall
 
 
@@ -40,30 +38,24 @@ class FakeLLM:
                     "get_quotes",
                 )
             return LLMResponse(
-                text="Here are your options. Reply 'book <product>' to book.",
+                text="Here are your options. Use Select on the exact ride option card.",
                 tool_calls=[],
             )
 
         if lowered.startswith("book"):
-            if self._called(recent, "book_ride"):
-                return LLMResponse(text="Please confirm in the card above.", tool_calls=[])
-            quotes = self._latest_result(messages, "quotes").get("quotes", [])
-            cheapest = min(quotes, key=self._price)
-            return self._call("book_ride", {"fare_id": cheapest["fare_id"]}, "book_ride")
+            return LLMResponse(
+                text="Use Select on the exact ride option card you want.",
+                tool_calls=[],
+            )
 
         if "cancel" in lowered:
-            if self._called(recent, "cancel_ride"):
-                return LLMResponse(text="Please confirm the cancellation.", tool_calls=[])
             trips_result = self._latest_result(recent, "trips")
             if not trips_result:
                 return self._call("list_session_trips", {}, "list_session_trips")
-            cancellable = [
-                trip
-                for trip in trips_result["trips"]
-                if trip["status"] in {status.value for status in CANCELLABLE_STATUSES}
-            ]
-            trip = max(cancellable, key=lambda item: item["created_at"])
-            return self._call("cancel_ride", {"trip_id": trip["trip_id"]}, "cancel_ride")
+            return LLMResponse(
+                text="Use Select cancellation on the exact trip card you want.",
+                tool_calls=[],
+            )
 
         if "status" in lowered:
             trips_result = self._latest_result(recent, "trips")
@@ -113,18 +105,3 @@ class FakeLLM:
             if key in result:
                 return result
         return {}
-
-    @staticmethod
-    def _called(messages: list[dict], name: str) -> bool:
-        return any(
-            call.get("function", {}).get("name") == name
-            for message in messages
-            for call in message.get("tool_calls", [])
-        )
-
-    @staticmethod
-    def _price(quote: dict) -> float:
-        if "price_value" in quote:
-            return float(quote["price_value"])
-        match = re.search(r"\d+(?:\.\d+)?", quote["price_display"])
-        return float(match.group()) if match else float("inf")

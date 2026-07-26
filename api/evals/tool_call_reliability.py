@@ -179,15 +179,9 @@ def load_cases(path: Path) -> list[GoldenCase]:
     cases = [GoldenCase.model_validate(item) for item in payload]
     if len(cases) < 24 or len({item.id for item in cases}) != len(cases):
         raise ValueError("golden set must contain at least 24 uniquely named cases")
-    if sum(item.write_proposal for item in cases) < 8:
-        raise ValueError("golden set must contain at least 8 write proposals")
-    if {
-        item.expected_tool for item in cases if item.write_proposal
-    } != {"book_ride", "cancel_ride"}:
-        raise ValueError("write proposals must cover book_ride and cancel_ride")
     available = set(ARG_MODELS)
     if any(
-        not set(item.tools) <= available
+        set(item.tools) != available
         or not set(item.allowed_tools) <= set(item.tools)
         or not set(item.forbidden_tools) <= set(item.tools)
         for item in cases

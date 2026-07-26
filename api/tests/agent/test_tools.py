@@ -5,6 +5,7 @@ import pytest
 
 from app.geocode.onemap import GeocodeError
 from app.agent.tools import (
+    HANDLERS,
     ToolContext,
     handle_book_ride,
     handle_cancel_ride,
@@ -18,6 +19,15 @@ from app.models import LatLng, Place, TripStatus
 from app.providers.uber import ProviderError
 
 from .conftest import StubGeocoder, make_quote, make_session, make_trip
+
+
+def test_model_dispatch_registry_contains_only_read_tools():
+    assert set(HANDLERS) == {
+        "search_places",
+        "get_quotes",
+        "get_trip_status",
+        "list_session_trips",
+    }
 
 
 def test_session_tool_schemas_limit_ids_to_current_session_state():
@@ -59,26 +69,16 @@ def test_session_tool_schemas_limit_ids_to_current_session_state():
     assert set(schemas) == {
         "search_places",
         "get_quotes",
-        "book_ride",
         "get_trip_status",
         "list_session_trips",
-        "cancel_ride",
     }
     assert schemas["get_quotes"]["properties"] == {
         "pickup_place_id": {"type": "string", "enum": ["plc-a", "plc-b"]},
         "dropoff_place_id": {"type": "string", "enum": ["plc-a", "plc-b"]},
     }
-    assert schemas["book_ride"]["properties"]["fare_id"] == {
-        "type": "string",
-        "enum": ["fare-live"],
-    }
     assert schemas["get_trip_status"]["properties"]["trip_id"] == {
         "type": "string",
         "enum": ["uber:active", "uber:done"],
-    }
-    assert schemas["cancel_ride"]["properties"]["trip_id"] == {
-        "type": "string",
-        "enum": ["uber:active"],
     }
 
 
@@ -87,10 +87,12 @@ def test_session_tool_schemas_omit_tools_without_eligible_values():
         make_session(), [], datetime(2026, 7, 26, tzinfo=timezone.utc)
     )
 
-    assert [schema["function"]["name"] for schema in schemas] == [
+    assert {schema["function"]["name"] for schema in schemas} == {
         "search_places",
+        "get_quotes",
+        "get_trip_status",
         "list_session_trips",
-    ]
+    }
 
 
 def test_session_tool_schemas_expose_quotes_with_one_known_place():
@@ -127,6 +129,7 @@ def context(repos, provider, publisher, geocoder=None):
         geocoder=geocoder or StubGeocoder(),
         publisher=publisher,
         correlation_id="act_test",
+        actor="llm",
     )
 
 
@@ -203,9 +206,16 @@ async def test_book_ride_creates_frozen_pending_action_and_card(repos, provider,
     assert result == {"status": "pending_user_confirmation"}
     action = await repos[3].claim(publisher.messages[0][1]["token"])
     assert action.payload["quote"]["fare_id"] == quote.fare_id
-    assert action.correlation_id != "act_test"
+    assert action.correlation_id == "act_test"
     assert publisher.messages[0][1]["type"] == "confirmation_request"
     assert not provider.book_calls
+
+    rows = boto3.resource("dynamodb").Table("action_log").scan()["Items"]
+    rows.sort(key=lambda item: item["entry_key"])
+    assert [(row["phase"], row["actor"]) for row in rows] == [
+        ("requested", "llm"),
+        ("verified", "system"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -257,7 +267,12 @@ async def test_list_session_trips_and_cancel_card(repos, provider, publisher):
         session, {"trip_id": trip.trip_id}, context(repos, provider, publisher)
     )
     assert result == {"status": "pending_user_confirmation"}
-    assert publisher.messages[-1][1]["action"] == "cancel"
+    request = publisher.messages[-1][1]
+    assert request["action"] == "cancel"
+    action = await repos[3].claim(request["token"])
+    assert request["summary"]["expires_at"] == datetime.fromtimestamp(
+        action.expires_at, timezone.utc
+    ).isoformat()
     assert not provider.cancel_calls
 
 
