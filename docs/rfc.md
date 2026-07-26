@@ -19,7 +19,8 @@ _Last updated: 2026-07-27_
 evidence triggered RB-110 #22. RB-110 implementation now keeps model tools read-only and routes
 exact quote/trip card selections through the existing confirmation gate with user-attributed
 audit entries. Two cold release-gate runs and implementation re-review passed.
-**Next step:** Open the RB-110 pull request and verify its required CI check.
+**Next step:** Verify the required CI check for
+[RB-110 PR #37](https://github.com/vince-e10/route-buddy/pull/37).
 **Open questions:**
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
@@ -29,6 +30,7 @@ audit entries. Two cold release-gate runs and implementation re-review passed.
 ## Log
 
 ### 2026-07-27 - RB-110 deterministic write selection implemented locally
+- Opened [RB-110 PR #37](https://github.com/vince-e10/route-buddy/pull/37).
 - Recorded the [RB-108 baseline evidence](https://github.com/vince-e10/route-buddy/issues/20#issuecomment-5082397293)
   and the unchanged post-hardening evaluation in
   [RB-109 PR #36](https://github.com/vince-e10/route-buddy/pull/36): valid wrong write proposals
