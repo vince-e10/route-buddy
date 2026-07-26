@@ -14,7 +14,8 @@ from .prompts import SYSTEM_PROMPT
 from .publishing import publisher
 from .rate_limit import RateLimiter
 from .session_locks import session_lock
-from .tools import ARG_MODELS, HANDLERS, TOOL_SCHEMAS, ToolContext
+from .tool_contracts import ARG_MODELS, TOOL_SCHEMAS
+from .tools import HANDLERS, ToolContext
 
 
 class AgentServiceImpl:

@@ -14,7 +14,7 @@ class ScriptedLLM:
         self.responses = list(responses)
         self.calls = []
 
-    async def complete(self, messages, tools):
+    async def complete(self, messages, tools, *, model=None):
         self.calls.append(messages)
         response = self.responses.pop(0)
         if isinstance(response, Exception):

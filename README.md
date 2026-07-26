@@ -97,6 +97,21 @@ docker compose exec -T api python -m pytest tests -v
 docker compose run --rm --no-deps -v "$PWD/mock-uber/tests:/tests:ro" mock-uber python -m pytest /tests -v
 ```
 
+The live-model reliability evaluation uses the production OpenRouter request path but never
+starts dependencies or executes a returned tool call. Configure the OpenRouter key through the
+existing local environment flow, then run both configured models three times:
+
+```sh
+docker compose run --rm --no-deps --build -v /tmp:/reports api \
+  python -m evals.tool_call_reliability \
+  --model primary --model fallback --runs 3 \
+  --output /reports/route-buddy-tool-call-report.json
+```
+
+The machine-readable report is written to `/tmp/route-buddy-tool-call-report.json` on the host.
+The `primary` and `fallback` aliases resolve from the configured model variables. This live
+evaluation is intentionally excluded from CI.
+
 ## Architecture and invariants
 
 - Every book or cancel requires a fresh, single-use user confirmation.
@@ -110,7 +125,9 @@ docker compose run --rm --no-deps -v "$PWD/mock-uber/tests:/tests:ro" mock-uber 
    limits. Production validation still runs against AWS.
 2. Webhook auth is a shared secret, not signatures - prod item
 3. Single region/market (SG), single user, English-first prompts
-4. Model may occasionally produce a malformed tool call despite mitigations - the failure mode is a logged refusal and a re-ask, never an unintended action (the gate guarantees this)
+4. Live models can still choose malformed or semantically wrong tool calls. The repeatable
+   golden-set evaluation measures this reliability; rejected calls cannot execute, and every
+   booking or cancellation still requires a fresh confirmation.
 
 ## Docs
 
