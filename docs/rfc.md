@@ -37,10 +37,14 @@ selection separately in RB-110 #22.
 - GLM-4.5-Air passed 81/102 case-runs; MiniMax M2 passed 83/102; overall was 164/204.
   Structural validity remained 100%. Across all attempts, the remaining non-pass outcomes were
   26 `should_clarify` and 22 `unnecessary_refusal`; 40 case-runs ended without a pass.
-- Deterministic write selection is activated for RB-110 #22. GLM proposed valid `cancel_ride`
-  calls for `cancel-completed-trip` in runs 1, 2, and 3. MiniMax proposed valid `book_ride` calls
-  for `book-expired-quote` in runs 1, 2, and 3, plus a completed-trip cancellation in run 3.
-  RB-109 does not implement that follow-up.
+- Deterministic write selection is activated for RB-110 #22. GLM proposed structurally valid
+  evaluator `cancel_ride` calls for `cancel-completed-trip` in runs 1, 2, and 3. MiniMax proposed
+  structurally valid evaluator `book_ride` calls for `book-expired-quote` in runs 1, 2, and 3,
+  plus a completed-trip cancellation in run 3. The unchanged `book-expired-quote` fixture
+  supplies no fare enum, so those booking proposals were JSON/Pydantic-valid, not
+  allowlist-validated. In production, dynamic schemas omit `book_ride` when all quotes are
+  expired and omit `cancel_ride` for non-cancellable trips; handlers still recheck expiry,
+  ownership, and status. RB-109 does not implement the RB-110 follow-up.
 - Report secret and PII pattern scan: clean.
 - Compatibility verification found that
   `parallel_tool_calls: false` plus strict `provider.require_parameters` returned HTTP 404 for
