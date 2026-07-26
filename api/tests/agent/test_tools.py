@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import boto3
 import pytest
@@ -13,10 +13,84 @@ from app.agent.tools import (
     handle_list_session_trips,
     handle_search_places,
 )
+from app.agent.tool_contracts import session_tool_schemas
 from app.models import Place, TripStatus
 from app.providers.uber import ProviderError
 
 from .conftest import StubGeocoder, make_quote, make_session, make_trip
+
+
+def test_session_tool_schemas_limit_ids_to_current_session_state():
+    current = datetime(2026, 7, 26, tzinfo=timezone.utc)
+    session = make_session()
+    quote = make_quote(fare_id="fare-live").model_copy(
+        update={"expires_at": current + timedelta(minutes=1)}
+    )
+    session.places = {
+        "plc-a": Place(
+            place_id="plc-a",
+            name="A",
+            address="A",
+            postal=None,
+            location=quote.pickup,
+        ),
+        "plc-b": Place(
+            place_id="plc-b",
+            name="B",
+            address="B",
+            postal=None,
+            location=quote.dropoff,
+        ),
+    }
+    session.quotes = {
+        quote.fare_id: quote,
+        "fare-expired": quote.model_copy(update={"expires_at": current}),
+    }
+    trips = [
+        make_trip(session.session_id, status=TripStatus.accepted, request_id="active"),
+        make_trip(session.session_id, status=TripStatus.completed, request_id="done"),
+    ]
+
+    schemas = {
+        schema["function"]["name"]: schema["function"]["parameters"]
+        for schema in session_tool_schemas(session, trips, current)
+    }
+
+    assert set(schemas) == {
+        "search_places",
+        "get_quotes",
+        "book_ride",
+        "get_trip_status",
+        "list_session_trips",
+        "cancel_ride",
+    }
+    assert schemas["get_quotes"]["properties"] == {
+        "pickup_place_id": {"type": "string", "enum": ["plc-a", "plc-b"]},
+        "dropoff_place_id": {"type": "string", "enum": ["plc-a", "plc-b"]},
+    }
+    assert schemas["book_ride"]["properties"]["fare_id"] == {
+        "type": "string",
+        "enum": ["fare-live"],
+    }
+    assert schemas["get_trip_status"]["properties"]["trip_id"] == {
+        "type": "string",
+        "enum": ["uber:active", "uber:done"],
+    }
+    assert schemas["cancel_ride"]["properties"]["trip_id"] == {
+        "type": "string",
+        "enum": ["uber:active"],
+    }
+
+
+def test_session_tool_schemas_omit_tools_without_eligible_values():
+    schemas = session_tool_schemas(
+        make_session(), [], datetime(2026, 7, 26, tzinfo=timezone.utc)
+    )
+
+    assert [schema["function"]["name"] for schema in schemas] == [
+        "search_places",
+        "list_session_trips",
+    ]
 
 
 def context(repos, provider, publisher, geocoder=None):

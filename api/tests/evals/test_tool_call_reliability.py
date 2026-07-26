@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.agent.llm import LLMError, LLMResponse, LLMUsage, ToolCall
+from app.agent.tool_contracts import tool_schemas
 from evals.tool_call_reliability import (
     EvaluationReport,
     GoldenCase,
@@ -17,6 +18,55 @@ from evals.tool_call_reliability import (
 
 
 FIXTURE = Path(__file__).parents[2] / "evals" / "golden-set.json"
+
+
+def test_generated_tool_schemas_are_exact_and_forbid_extra_properties():
+    schemas = {
+        schema["function"]["name"]: schema["function"]["parameters"]
+        for schema in tool_schemas()
+    }
+
+    assert schemas == {
+        "search_places": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        "get_quotes": {
+            "type": "object",
+            "properties": {
+                "pickup_place_id": {"type": "string"},
+                "dropoff_place_id": {"type": "string"},
+            },
+            "required": ["pickup_place_id", "dropoff_place_id"],
+            "additionalProperties": False,
+        },
+        "book_ride": {
+            "type": "object",
+            "properties": {"fare_id": {"type": "string"}},
+            "required": ["fare_id"],
+            "additionalProperties": False,
+        },
+        "get_trip_status": {
+            "type": "object",
+            "properties": {"trip_id": {"type": "string"}},
+            "required": ["trip_id"],
+            "additionalProperties": False,
+        },
+        "list_session_trips": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
+        "cancel_ride": {
+            "type": "object",
+            "properties": {"trip_id": {"type": "string"}},
+            "required": ["trip_id"],
+            "additionalProperties": False,
+        },
+    }
 
 
 def call(name: str, arguments: str) -> LLMResponse:
