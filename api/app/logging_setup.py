@@ -49,7 +49,7 @@ _RECORD_FIELDS = set(logging.makeLogRecord({}).__dict__)
 def _is_sensitive_key(key: object) -> bool:
     normalized = str(key).lower().replace("-", "_")
     return normalized in _SENSITIVE_KEYS or normalized.endswith(
-        ("_api_key", "_password", "_secret", "_token")
+        ("_access_key", "_api_key", "_password", "_secret", "_token")
     )
 
 

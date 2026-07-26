@@ -519,6 +519,38 @@ async def test_invalid_audit_redacts_sensitive_arguments(
 
 
 @pytest.mark.asyncio
+async def test_invalid_audit_redacts_opaque_aws_access_key_before_cap(
+    repos, provider, publisher
+):
+    opaque = "opaque-access-credential"
+    arguments = (
+        f'{{"aws_secret_access_key":"{opaque}","query":"' + "x" * 600 + '"}'
+    )
+    llm = ScriptedLLM(
+        [
+            LLMResponse(
+                text=None,
+                tool_calls=[
+                    ToolCall(id="invalid", name="search_places", arguments=arguments)
+                ],
+            ),
+            LLMResponse(text="Recovered.", tool_calls=[]),
+        ]
+    )
+
+    await service(repos, provider, publisher, llm).handle_user_message(
+        "audit-access-key", "x"
+    )
+
+    persisted = _action_rows("audit-access-key")[0]["payload"]["proposals"][0][
+        "arguments"
+    ]
+    assert opaque not in persisted
+    assert persisted.startswith('{"aws_secret_access_key":"[REDACTED]"')
+    assert len(persisted) <= 512
+
+
+@pytest.mark.asyncio
 async def test_invalid_audit_redacts_before_final_length_cap(
     repos, provider, publisher
 ):
