@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.agent.llm import LLMClient, LLMError, LLMResponse, OpenRouterClient, ToolCall
 from app.agent.prompts import SYSTEM_PROMPT
-from app.agent.tool_contracts import ARG_MODELS, TOOL_SCHEMAS
+from app.agent.tool_contracts import ARG_MODELS, tool_schemas
 from app.config import Settings
 
 
@@ -290,9 +290,8 @@ async def _evaluate_case(
         *case.preceding_messages,
         {"role": "user", "content": case.user_message},
     ]
-    schemas = [
-        schema for schema in TOOL_SCHEMAS if schema["function"]["name"] in case.tools
-    ]
+    enum_values = {name: case.allowed_values for name in case.tools}
+    schemas = tool_schemas(case.tools, enum_values)
     attempts: list[AttemptResult] = []
     stop_status = None
     limit = case.max_attempts if case.recovery else 1

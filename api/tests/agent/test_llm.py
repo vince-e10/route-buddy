@@ -47,12 +47,14 @@ async def test_openrouter_payload_and_response(config):
     assert result.usage.cost == 0.0004
     request = route.calls[0].request
     body = __import__("json").loads(request.content)
+    assert body["model"] == config.openrouter_model_primary
     assert body["models"] == [
         config.openrouter_model_primary,
         config.openrouter_model_fallback,
     ]
-    assert body["provider"] == {"require_parameters": True, "data_collection": "deny"}
+    assert body["provider"] == {"data_collection": "deny"}
     assert body["tool_choice"] == "auto"
+    assert body["parallel_tool_calls"] is False
     assert request.headers["authorization"] == f"Bearer {config.openrouter_api_key}"
 
 
@@ -71,7 +73,8 @@ async def test_explicit_model_is_pinned_without_fallbacks(config):
     body = __import__("json").loads(route.calls[0].request.content)
     assert body["model"] == "provider/pinned"
     assert "models" not in body
-    assert body["provider"]["data_collection"] == "deny"
+    assert body["provider"] == {"data_collection": "deny"}
+    assert body["parallel_tool_calls"] is False
 
 
 @pytest.mark.asyncio

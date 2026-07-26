@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.agent.llm import LLMError, LLMResponse, LLMUsage, ToolCall
+from app.agent.tool_contracts import tool_schemas
 from evals.tool_call_reliability import (
     EvaluationReport,
     GoldenCase,
@@ -17,6 +18,55 @@ from evals.tool_call_reliability import (
 
 
 FIXTURE = Path(__file__).parents[2] / "evals" / "golden-set.json"
+
+
+def test_generated_tool_schemas_are_exact_and_forbid_extra_properties():
+    schemas = {
+        schema["function"]["name"]: schema["function"]["parameters"]
+        for schema in tool_schemas()
+    }
+
+    assert schemas == {
+        "search_places": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        "get_quotes": {
+            "type": "object",
+            "properties": {
+                "pickup_place_id": {"type": "string"},
+                "dropoff_place_id": {"type": "string"},
+            },
+            "required": ["pickup_place_id", "dropoff_place_id"],
+            "additionalProperties": False,
+        },
+        "book_ride": {
+            "type": "object",
+            "properties": {"fare_id": {"type": "string"}},
+            "required": ["fare_id"],
+            "additionalProperties": False,
+        },
+        "get_trip_status": {
+            "type": "object",
+            "properties": {"trip_id": {"type": "string"}},
+            "required": ["trip_id"],
+            "additionalProperties": False,
+        },
+        "list_session_trips": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
+        "cancel_ride": {
+            "type": "object",
+            "properties": {"trip_id": {"type": "string"}},
+            "required": ["trip_id"],
+            "additionalProperties": False,
+        },
+    }
 
 
 def call(name: str, arguments: str) -> LLMResponse:
@@ -171,13 +221,89 @@ class ScriptedClient:
     def __init__(self, responses):
         self.responses = iter(responses)
         self.calls = 0
+        self.tools = []
 
     async def complete(self, messages, tools, *, model=None):
         self.calls += 1
+        self.tools.append(tools)
         response = next(self.responses)
         if isinstance(response, Exception):
             raise response
         return response
+
+
+@pytest.mark.asyncio
+async def test_evaluator_supplies_exact_case_schemas_without_dispatch(monkeypatch, tmp_path):
+    from app.agent import tools as production_tools
+
+    async def fail_if_dispatched(*args, **kwargs):
+        raise AssertionError("tool handler was dispatched")
+
+    monkeypatch.setitem(production_tools.HANDLERS, "book_ride", fail_if_dispatched)
+    client = ScriptedClient([call("book_ride", '{"fare_id":"fare_1"}')])
+
+    await run_evaluation(
+        client=client,
+        cases=[
+            case(
+                tools=["book_ride", "cancel_ride"],
+                allowed_values={
+                    "fare_id": ["fare_1", "fare_2"],
+                    "trip_id": ["trip_1"],
+                },
+            )
+        ],
+        models=["provider/model"],
+        runs=1,
+        output=tmp_path / "report.json",
+    )
+
+    assert client.tools == [
+        [
+            {
+                "type": "function",
+                "function": {
+                    "name": "book_ride",
+                    "description": (
+                        "Propose booking a quoted ride. Requires the user to confirm "
+                        "in the UI before anything is booked."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "fare_id": {
+                                "type": "string",
+                                "enum": ["fare_1", "fare_2"],
+                            }
+                        },
+                        "required": ["fare_id"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "cancel_ride",
+                    "description": (
+                        "Propose cancelling a trip. Requires the user to confirm "
+                        "in the UI before anything is cancelled."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "trip_id": {
+                                "type": "string",
+                                "enum": ["trip_1"],
+                            }
+                        },
+                        "required": ["trip_id"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        ]
+    ]
 
 
 @pytest.mark.asyncio

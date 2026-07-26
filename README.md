@@ -110,7 +110,8 @@ docker compose run --rm --no-deps --build -v /tmp:/reports api \
 
 The machine-readable report is written to `/tmp/route-buddy-tool-call-report.json` on the host.
 The `primary` and `fallback` aliases resolve from the configured model variables. This live
-evaluation is intentionally excluded from CI.
+evaluation is intentionally excluded from CI. It uses the production schema builder with each
+case's supplied tool names and allowed ID enums, while retaining the golden-set fixture unchanged.
 
 ## Architecture and invariants
 
@@ -119,15 +120,31 @@ evaluation is intentionally excluded from CI.
 - Prices, ETAs, identifiers, and lifecycle state come from tool output, never model invention.
 - The model never receives rider PII. The API adds it only while executing a confirmed booking.
 
+Model tool calls are untrusted proposals. Route Buddy validates every proposal; invalid proposals
+are rejected and logged. Booking or cancellation is possible only after the user confirms the
+exact server-frozen action.
+
+Only state-legal tools and IDs are sent to the model. Calls are sequential, and one structurally
+invalid primary proposal may receive one correction pinned to the fallback model. The fallback is
+subject to the same validation. Invalid argument text in the audit log is capped at 512
+characters.
+
 ## Known MVP limitations
 
 1. Floci is a development emulator, not proof of real AWS durability, scaling, IAM, or service
    limits. Production validation still runs against AWS.
 2. Webhook auth is a shared secret, not signatures - prod item
 3. Single region/market (SG), single user, English-first prompts
-4. Live models can still choose malformed or semantically wrong tool calls. The repeatable
-   golden-set evaluation measures this reliability; rejected calls cannot execute, and every
-   booking or cancellation still requires a fresh confirmation.
+4. Generated exact schemas, OpenRouter's current Draft 7-based Auto Exacto routing, and one pinned
+   correction reduce invalid proposals but cannot guarantee semantic intent. The `models` array
+   falls back on request errors, not valid responses containing wrong proposals. Response Healing
+   covers non-streaming `response_format` JSON content when enabled, not ordinary tool arguments.
+   OpenRouter/provider routing can change over time; server validation and the confirmation gate
+   guarantee safety.
+5. Strict `provider.require_parameters` is not enabled. Both configured routes returned HTTP 404
+   when it was combined with `parallel_tool_calls: false`; removing only that routing filter
+   restored inference. Route Buddy still sends sequential-call requests, denies provider data
+   collection, validates exact schemas server-side, rejects multiple calls, and gates writes.
 
 ## Docs
 

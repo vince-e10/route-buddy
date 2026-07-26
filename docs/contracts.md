@@ -283,36 +283,65 @@ class PendingActionRepo:
 Read tools execute immediately. Write tools (`book_ride`, `cancel_ride`) NEVER execute from an LLM
 call; they create a pending action + confirmation card (see design.md 6.2).
 
+The server generates these JSON Schema Draft 7-compatible parameter objects from the Pydantic
+argument models. Every object rejects extra properties. Before each model request, current
+session state filters unavailable tools and adds enums containing only legal place, unexpired
+fare, owned trip, and cancellable trip IDs.
+
 ```json
 [
  {"type":"function","function":{"name":"search_places",
    "description":"Search Singapore places (landmarks, buildings, postal codes) and return candidates with place_ids.",
-   "parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}},
+   "parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],
+     "additionalProperties":false}}},
  {"type":"function","function":{"name":"get_quotes",
    "description":"Get ride quotes between two previously searched places. Use place_ids returned by search_places.",
    "parameters":{"type":"object","properties":{
      "pickup_place_id":{"type":"string"},"dropoff_place_id":{"type":"string"}},
-     "required":["pickup_place_id","dropoff_place_id"]}}},
+     "required":["pickup_place_id","dropoff_place_id"],"additionalProperties":false}}},
  {"type":"function","function":{"name":"book_ride",
    "description":"Propose booking a quoted ride. Requires the user to confirm in the UI before anything is booked.",
-   "parameters":{"type":"object","properties":{"fare_id":{"type":"string"}},"required":["fare_id"]}}},
+   "parameters":{"type":"object","properties":{"fare_id":{"type":"string"}},"required":["fare_id"],
+     "additionalProperties":false}}},
  {"type":"function","function":{"name":"get_trip_status",
    "description":"Get current status of a trip in this session.",
-   "parameters":{"type":"object","properties":{"trip_id":{"type":"string"}},"required":["trip_id"]}}},
+   "parameters":{"type":"object","properties":{"trip_id":{"type":"string"}},"required":["trip_id"],
+     "additionalProperties":false}}},
  {"type":"function","function":{"name":"list_session_trips",
    "description":"List this session's trips with ids and statuses.",
-   "parameters":{"type":"object","properties":{}}}},
+   "parameters":{"type":"object","properties":{},"required":[],"additionalProperties":false}}},
  {"type":"function","function":{"name":"cancel_ride",
    "description":"Propose cancelling a trip. Requires the user to confirm in the UI before anything is cancelled.",
-   "parameters":{"type":"object","properties":{"trip_id":{"type":"string"}},"required":["trip_id"]}}}
+   "parameters":{"type":"object","properties":{"trip_id":{"type":"string"}},"required":["trip_id"],
+     "additionalProperties":false}}}
 ]
 ```
 
 Grounding rules enforced in code (not prompts):
-- `get_quotes` place_ids MUST exist in `session.places`, else refusal (the model cannot inject coordinates)
-- `book_ride.fare_id` MUST exist in `session.quotes` and be unexpired, else refusal
-- `get_trip_status` / `cancel_ride` trip_id MUST belong to the session (via `list_by_session`), else refusal
-- A refusal = tool result `{"error": "<reason>"}` fed back to the model + `verified: rejected` log entry
+- `search_places` and `list_session_trips` are always available
+- `get_quotes` is available with at least one known place; both ID fields enumerate current
+  `session.places`
+- `book_ride` is available only with an unexpired quote; `fare_id` enumerates those quotes
+- `get_trip_status` enumerates session-owned trips and is absent when there are none
+- `cancel_ride` enumerates session-owned trips in `CANCELLABLE_STATUSES` and is absent when there
+  are none
+- Handlers repeat membership, ownership, expiry, and status checks after schema generation
+- `parallel_tool_calls` is `false`; any multiple-call response is rejected as one proposal
+- Structural rejection allows one correction pinned to the fallback model; its output is not
+  trusted more and cannot trigger a second correction
+
+OpenRouter's `models` array covers model/provider request errors only. Current Auto Exacto
+validates tool arguments against the supplied Draft 7 schema to inform provider ordering, but it
+does not replace server validation. Response Healing applies to non-streaming `response_format`
+JSON content when its plugin is enabled, not to Route Buddy's ordinary tool arguments.
+The provider object is exactly `{"data_collection": "deny"}`. Do not add
+`require_parameters` while the configured model routes omit `parallel_tool_calls` from their
+supported-parameter listings: the strict combination returned HTTP 404 for both routes. The
+application still sends `parallel_tool_calls: false` and rejects multiple returned calls.
+
+Model tool calls are untrusted proposals. Route Buddy validates every proposal; invalid proposals
+are rejected and logged. Booking or cancellation is possible only after the user confirms the
+exact server-frozen action.
 
 ## 7. api HTTP/WS surface
 
@@ -439,6 +468,7 @@ reconciles via GET). api dedupes on `event_id` (TripRepo.apply_status_event).
 |---|---|
 | Read tool call | `requested`/llm -> `outcome`/llm (result summary or error) |
 | Write tool call (gate) | `requested`/llm -> `verified`/system (ok: token created, or rejected: reason) |
+| Invalid model proposal | `requested`/llm (raw arguments capped at 512 characters) -> `verified`/system (`malformed_arguments`, `unknown_tool`, `invalid_arguments`, or `multiple_tool_calls`) |
 | Confirm (user) | `verified`/user (claim ok, expired, or already-used) -> `executed`/system (provider call sent) -> `outcome`/system (provider response or error) |
 | Dismiss (user) | `outcome`/user `{"result": "aborted_by_user"}` |
 | Webhook | `outcome`/webhook `{"event_id", "status", "applied": bool}` (duplicates logged with `applied: false`) |

@@ -67,9 +67,10 @@ class OpenRouterClient:
             "messages": messages,
             "tools": tools,
             "tool_choice": "auto",
+            "parallel_tool_calls": False,
             "temperature": 0.2,
             "max_tokens": 1024,
-            "provider": {"require_parameters": True, "data_collection": "deny"},
+            "provider": {"data_collection": "deny"},
         }
         if model is None:
             body["models"] = [
