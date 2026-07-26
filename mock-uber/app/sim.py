@@ -10,6 +10,8 @@ from app.models import TripStatus, WebhookEvent
 
 
 logger = logging.getLogger(__name__)
+# ponytail: 2s interaction window; explicit simulator step controls only if browser flows outgrow this window.
+DETERMINISTIC_OBSERVATION_TIMEOUT = 2.0
 
 
 class Simulator:
@@ -38,8 +40,9 @@ class Simulator:
         if os.getenv("MOCK_DETERMINISTIC") == "1":
             event = self._observed.get(request_id)
             if event is not None:
+                event.clear()
                 try:
-                    await asyncio.wait_for(event.wait(), timeout=0.05)
+                    await asyncio.wait_for(event.wait(), timeout=DETERMINISTIC_OBSERVATION_TIMEOUT)
                 except TimeoutError:
                     pass
                 event.clear()

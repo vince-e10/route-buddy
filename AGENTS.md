@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI coding agents (Claude Code, Codex, Cursor, …) working in this repo.
+Guidance for AI coding agents (Claude Code, Codex, Cursor, etc.) working in this repo.
 `CLAUDE.md` is a pointer that imports this file. Keep this file the single source of truth -
 do not fork guidance into a second doc.
 
@@ -44,23 +44,20 @@ test behavior in proportion to risk, and leave `main` releasable.
 - Before delivery, verify every new path follows this convention. Naming consistency is a
   required acceptance check, not optional cleanup.
 
-## Status: IMPLEMENTATION STARTED (RB-101 foundation)
+## Status: MVP IMPLEMENTED (RB-107 release gate)
 
-RB-101 provides the Compose and Terraform foundation (`docker-compose.yml`, `infra/`), API
-skeleton and shared contracts (`api/app/`), service Dockerfiles, and the initial mock-Uber health
-placeholder (`mock-uber/app/main.py`). API health, registry, and log-redaction tests live in
-`api/tests/`. Compose startup, DynamoDB persistence across a Floci restart, and a no-change
-Terraform re-apply have been verified.
-
-Everything under "Intended shape" below remains a decision unless the paths above say otherwise.
+The complete MVP is implemented: Compose and Terraform foundation, mock Uber lifecycle, DynamoDB
+repositories, provider and geocoder adapters, agent confirmation gate, WebSocket UI, and release
+hardening. `scripts/e2e.sh` runs two cold deterministic verification passes in CI and verifies the
+public flow, action log, PII redaction, security headers, non-root containers, and port exposure.
 
 ## Intended shape
 
 ```
-chat UI ──▶ FastAPI ──▶ agent loop ──▶ tools ──▶ provider adapter ──▶ Uber API
-                │                        │
-                │                   confirmation gate (write tools only)
-                └────────────────▶ action log (append-only, every attempt)
+chat UI --> FastAPI --> agent loop --> tools --> provider adapter --> Uber API
+                |                        |
+                |                   confirmation gate (write tools only)
+                `------------------> action log (append-only, every attempt)
 ```
 
 - **Backend: FastAPI** (fixed by the requirements). Python.
@@ -118,4 +115,6 @@ The canonical stack entry point is:
 
 ```bash
 docker compose up          # whole system, one command (the requirement)
+./scripts/demo.sh          # bounded local startup with useful chat prompts
+./scripts/e2e.sh           # disposable deterministic release gate
 ```
