@@ -89,7 +89,22 @@ validates the local workflow, not full AWS fidelity; production validation still
 
 ### 3.3 OpenRouter and cheap tool-calling models
 
-- OpenAI-compatible `/api/v1/chat/completions` with the standard `tools` schema; `models: [...]` array gives automatic fallback; `provider.require_parameters: true` routes only to upstreams that honor `tools`/`response_format`; **Response Healing** repairs malformed tool-call JSON (a real problem on cheap models); provider data-policy filtering can exclude providers that train on or retain prompts
+- OpenAI-compatible `/api/v1/chat/completions` with standard `tools` schemas. OpenRouter's
+  current Auto Exacto routing validates tool arguments against the supplied JSON Schema Draft 7
+  definitions and uses aggregate tool-call error rates to order providers. This routing signal
+  is not Route Buddy's trust boundary.
+- The `models: [...]` array retries model/provider request errors, not successful responses with
+  invalid tool proposals. Route Buddy explicitly pins one fallback correction for a rejected
+  structural proposal. The deny-data-collection policy remains on every request.
+- Compatibility verification found that combining `parallel_tool_calls: false` with strict
+  `provider.require_parameters` returned HTTP 404 for both configured model routes because their
+  current parameter listings include `tools` and `tool_choice`, but not
+  `parallel_tool_calls`. Removing only `require_parameters` restored inference. Exact schemas,
+  sequential-call requests, server validation, multiple-call rejection, and the confirmation
+  gate remain enforced.
+- Response Healing applies only when its plugin is enabled for non-streaming
+  `response_format` JSON content. Route Buddy does not enable it, and it does not repair ordinary
+  tool-call arguments.
 - Candidates compared (mid-2026 pricing, $/Mtok in/out): GLM-4.5-Air 0.13/0.85 (lightweight sibling of the BFCL v3 leaderboard-topping GLM-4.5), MiniMax M2 0.26/1.02 (agent-purpose-built), DeepSeek V3.2 0.21/0.31, Kimi K2 0.60/2.50 (known trailing-garbage JSON issue via OpenRouter), Qwen3-32B 0.08/0.28 (weakest tool discipline)
 - **Selected: `z-ai/glm-4.5-air` primary, `minimax/minimax-m2` fallback.** Escalation path if tool discipline disappoints: route only the write-path turns (book/cancel proposals) to Claude Haiku while keeping cheap models on read paths
 
@@ -169,7 +184,7 @@ Design consequences:
 |---|---|---|---|
 | Claude API | Best tool-use discipline | Highest cost | Escalation path only |
 | AWS Bedrock | Most AWS-native | Local emulators do not provide real inference; local dev still hits cloud + needs AWS creds | No |
-| **OpenRouter, Chinese models** | Cheapest credible tool calling; model swap = config; automatic fallback | Malformed-JSON risk, provider variance | **Selected** (owner directive; mitigations: Response Healing, `require_parameters`, Pydantic validation, structural gate) |
+| **OpenRouter, Chinese models** | Cheapest credible tool calling; model swap = config; error-only model fallback | Malformed-JSON risk, provider variance | **Selected** (owner directive; mitigations: exact state-aware schemas, sequential calls, one pinned correction, Pydantic validation, structural gate) |
 | Local (Ollama) | Free, offline | Weak tool discipline vs the no-hallucination requirement | No |
 
 ### 4.3 Datastore
@@ -246,7 +261,23 @@ Tool inventory (the complete set; nothing else is exposed to the model):
 
 - Tool args validated with Pydantic; unknown tool or invalid args -> refusal returned to the model and logged (`verified: rejected`)
 - "Cancel that one" resolution: the session's trip list (explicit ids) is injected into context; the model must pass a concrete `trip_id`; ids are validated against the session before any gate record is created
-- LLM client: thin OpenAI-compatible wrapper; config = base URL, key, `models` list, `provider` options (`require_parameters: true`, data-policy deny-retention, Response Healing on). Swapping provider or model touches config only
+- Tool schemas are generated from the Pydantic argument models with
+  `additionalProperties: false`. Before each request, one trip snapshot determines which tools
+  are legal and constrains place, fare, and trip IDs to current values. Handlers repeat the
+  ownership, expiry, and status checks before creating a pending action.
+- OpenRouter calls set `parallel_tool_calls: false`; Route Buddy rejects any multiple-call
+  response. A malformed, unknown, schema-invalid, or multiple-call primary proposal gets at most
+  one correction request pinned to the fallback model. The fallback proposal passes through the
+  same validation.
+- Every structural rejection records the proposed name and raw arguments, capped at 512
+  characters, followed by the stable rejection code.
+- LLM client: thin OpenAI-compatible wrapper; config = base URL, key, primary/fallback models,
+  and provider privacy options. The `models` array covers request errors only; ordinary valid
+  turns remain on the primary model.
+
+Model tool calls are untrusted proposals. Route Buddy validates every proposal; invalid proposals
+are rejected and logged. Booking or cancellation is possible only after the user confirms the
+exact server-frozen action.
 
 ### 6.2 Confirmation gate (invariant 1)
 
@@ -358,8 +389,8 @@ class Geocoder(Protocol):
 | Invariant | Enforced by |
 |---|---|
 | Confirmation gate | Structure: write tools have no execution path; only `/confirm` with a live single-use token executes (6.2) |
-| Action log | Append-only repository (no update/delete methods); every phase of every attempt including refusals and aborts (6.3) |
-| Grounded answers | UI renders prices/ETAs/states from structured tool output only; trip references resolve against the session trip list, not model memory; invalid tool calls refused + logged; system prompt restricts to tool results (defense-in-depth, not the mechanism) |
+| Action log | Append-only repository (no update/delete methods); every phase of every attempt including bounded invalid proposals, refusals, and aborts (6.3) |
+| Grounded answers | UI renders prices/ETAs/states from structured tool output only; trip references resolve against the session trip list, not model memory; state-aware schemas and server validation reject invalid calls; system prompt restricts to tool results (defense-in-depth, not the mechanism) |
 
 ## 9. Security design
 
@@ -393,7 +424,9 @@ Terraform items, not faked locally.
    limits. Production validation still runs against AWS.
 2. Webhook auth is a shared secret, not signatures - prod item
 3. Single region/market (SG), single user, English-first prompts
-4. Model may occasionally produce a malformed tool call despite mitigations - the failure mode is a logged refusal and a re-ask, never an unintended action (the gate guarantees this)
+4. Constrained schemas and fallback correction reduce invalid proposals but cannot guarantee
+   semantic intent. OpenRouter/provider routing can change over time. Server validation and the
+   confirmation gate, not model intelligence or prompt instructions, guarantee safety.
 
 ## 12. Open questions / deferred to implementation
 
@@ -433,4 +466,4 @@ route-buddy/
 - Floci: [repository](https://github.com/floci-io/floci) · [DynamoDB](https://floci.io/floci/services/dynamodb/) · [storage modes](https://floci.io/floci/configuration/storage/) · [LocalStack migration](https://floci.io/floci/getting-started/migrate-from-localstack/) · [compatibility tests](https://github.com/floci-io/floci/tree/main/compatibility-tests)
 - Superseded LocalStack basis: [2026.03.0 release](https://blog.localstack.cloud/localstack-for-aws-release-2026-03-0/) · [plans](https://docs.localstack.cloud/aws/licensing/) · [persistence](https://docs.localstack.cloud/aws/developer-tools/snapshots/persistence/)
 - OneMap: [Search API docs](https://www.onemap.gov.sg/apidocs/search) · [Token management](https://www.onemap.gov.sg/apidocs/docs/tokenmanagement) (contract in 3.4 verified by live calls 2026-07-25, since the docs site is a JS app that cannot be fetched as text)
-- OpenRouter: [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection) · [Structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs) · [Response Healing](https://openrouter.ai/docs/guides/features/plugins/response-healing) · [Exacto](https://openrouter.ai/blog/announcements/provider-variance-introducing-exacto/) · [GLM-4.5-Air](https://openrouter.ai/z-ai/glm-4.5-air) · [MiniMax M2](https://openrouter.ai/minimax/minimax-m2) · [Rate limits](https://openrouter.ai/docs/api_reference/limits)
+- OpenRouter: [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection) · [Model fallbacks](https://openrouter.ai/docs/guides/routing/model-fallbacks) · [Tool calling](https://openrouter.ai/docs/guides/features/tool-calling) · [Auto Exacto](https://openrouter.ai/docs/guides/routing/auto-exacto) · [Response Healing](https://openrouter.ai/docs/guides/features/plugins/response-healing) · [GLM-4.5-Air](https://openrouter.ai/z-ai/glm-4.5-air) · [MiniMax M2](https://openrouter.ai/minimax/minimax-m2) · [Rate limits](https://openrouter.ai/docs/api_reference/limits)

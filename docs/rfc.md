@@ -15,21 +15,53 @@ this file (live status).
 _Last updated: 2026-07-26_
 
 **Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, DynamoDB on an AWS-compatible local emulator, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
-**Status:** MVP implemented. RB-108 adds a no-dispatch, repeatable live-model reliability
-evaluation covering 34 synthetic cases, including 14 write turns and six recovery cases. Its
-first baseline is partial: the configured Nemotron free route returned HTTP 404, and the
-configured Gemma free route returned HTTP 429. Each non-retryable route stopped after its first
-request. No model response, token usage, cost, or tool dispatch occurred.
-**Next step:** Merge the RB-108 harness, rerun the identical fixture when the configured
-OpenRouter routes are available, then use the completed baseline for RB-109 hardening.
+**Status:** MVP implemented. RB-109 now generates exact state-aware schemas, exposes only current
+legal IDs, forces sequential tool calls, pins one structural correction to the fallback model,
+and records bounded invalid-proposal audit pairs. The unchanged post-hardening evaluation
+completed all 204 case-runs with 100% structural validity and 164 semantic passes. Valid wrong
+write proposals recurred in three consecutive runs, activating RB-110 #22.
+**Next step:** Complete RB-109 release verification and PR review. Implement deterministic write
+selection separately in RB-110 #22.
 **Open questions:**
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
 - Uber partner approval timeline - business, needed only for real-provider swap
-- Free-model evaluation availability - Nemotron currently has no usable configured route and
-  Gemma is rate limited; this is provider/quota behavior, not measured model quality
+- Deterministic write-selection UX and implementation - activated for RB-110 #22 by the RB-109
+  case-level evidence
 
 ## Log
+
+### 2026-07-26 - RB-109 unchanged post-hardening evaluation completed
+- The same fixture SHA, configured models, three runs, temperature, and token cap completed all
+  204 case-runs with no transport failure.
+- GLM-4.5-Air passed 81/102 case-runs; MiniMax M2 passed 83/102; overall was 164/204.
+  Structural validity remained 100%. Across all attempts, the remaining non-pass outcomes were
+  26 `should_clarify` and 22 `unnecessary_refusal`; 40 case-runs ended without a pass.
+- Deterministic write selection is activated for RB-110 #22. GLM proposed valid `cancel_ride`
+  calls for `cancel-completed-trip` in runs 1, 2, and 3. MiniMax proposed valid `book_ride` calls
+  for `book-expired-quote` in runs 1, 2, and 3, plus a completed-trip cancellation in run 3.
+  RB-109 does not implement that follow-up.
+- Report secret and PII pattern scan: clean.
+- Compatibility verification found that
+  `parallel_tool_calls: false` plus strict `provider.require_parameters` returned HTTP 404 for
+  both configured routes. Removing only `require_parameters` restored inference while
+  `data_collection: deny`, exact schemas, server validation, multiple-call rejection, and the
+  confirmation gate remained.
+
+### 2026-07-26 - RB-109 tool-proposal hardening implemented
+- Model tool calls are untrusted proposals. Route Buddy validates every proposal; invalid
+  proposals are rejected and logged. Booking or cancellation is possible only after the user
+  confirms the exact server-frozen action.
+- Generated Draft 7-compatible schemas match Pydantic validation, reject extra properties, and
+  expose only tools and IDs legal for one current trip snapshot.
+- Every request is sequential. One structural rejection may receive one correction pinned to the
+  fallback model; the fallback passes through the same validation and cannot trigger another
+  correction.
+- Invalid proposals record `requested` then `verified` audit entries, with raw argument text
+  capped at 512 characters.
+- OpenRouter's `models` fallback applies to request errors. Current Auto Exacto provider ordering
+  uses supplied tool schemas as a quality signal. Response Healing applies to non-streaming
+  `response_format` JSON content when enabled, not ordinary tool arguments.
 
 ### 2026-07-26 - RB-108 reliability harness and partial live baseline
 - Added a committed 34-case golden set and an offline-tested evaluator that pins one model,
