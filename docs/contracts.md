@@ -483,6 +483,28 @@ appear in `executed` payloads (the action log is the access-controlled audit tra
 | `api/app/agent/**`, `api/app/deps.py`, `api/app/routers/{confirm,webhooks}.py` (fill stubs), `api/tests/agent/**` | [RB-105 #6](https://github.com/vince-e10/route-buddy/issues/6) |
 | `api/app/ws/manager.py`, `api/app/routers/ws.py` (fill stub), `api/app/static/index.html` (replaces RB-101's initial placeholder), `api/tests/ws/**` | [RB-106 #7](https://github.com/vince-e10/route-buddy/issues/7) |
 | `scripts/**`, `api/tests/e2e/**`, `README.md` | [RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8) |
+| `infra/bootstrap/**`, `.github/workflows/bootstrap.yml`, AWS bootstrap sections in project docs | [RB-111 #23](https://github.com/vince-e10/route-buddy/issues/23) |
 
 `api/app/main.py` is written ONCE in RB-101 with all router includes pointing at stub routers;
 later issues fill their stub router files and never touch `main.py`.
+
+## 14. AWS bootstrap contract
+
+| Item | Exact contract |
+|---|---|
+| Terraform | `1.15.8` |
+| AWS provider | `6.56.0` |
+| State bucket | `route-buddy-tfstate-<account-id>-<region>` |
+| Bootstrap state | `bootstrap/terraform.tfstate` plus native `.tflock` |
+| Demo state | `environments/aws-demo/terraform.tfstate` plus native `.tflock` |
+| Reserved production state | `environments/production/terraform.tfstate` plus native `.tflock` |
+| Bootstrap trust | `repo:vince-e10/route-buddy:environment:aws-bootstrap` |
+| Demo deploy trust | `repo:vince-e10/route-buddy:environment:aws-demo` |
+| ECR repositories | `route-buddy/api`, `route-buddy/mock-uber` |
+| Image tags | Immutable full Git commit SHA only |
+
+Both trust policies require audience `sts.amazonaws.com`. The demo role can access only demo
+state and lock objects, push only to the two private repositories, and pass only
+`route-buddy-aws-demo-execution` and `route-buddy-aws-demo-task` to ECS. Roles it creates must
+use the bootstrap-owned application permissions boundary. Bootstrap resources have no
+application-workflow destroy path.
