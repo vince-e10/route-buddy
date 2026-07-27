@@ -370,8 +370,12 @@ FastAPI service implementing the Guest Rides surface with verbatim paths, field 
   settings. Terraform's mocked AWS provider validates the shape without an AWS account. No live
   plan or apply has been run.
 - Future live path: the demo state key is `environments/aws-demo/terraform.tfstate`; production
-  reserves `environments/production/terraform.tfstate`. Terraform manages the application secret
-  shell only; values must be injected out of band so no secret lands in configuration or state.
+  reserves `environments/production/terraform.tfstate`. Bootstrap owns the application secret
+  shell only; the AWS root reads it as existing metadata, and values must be injected out of band
+  so no secret lands in configuration or state. The protected manual `aws-demo` workflow requires
+  the current `main` commit before approval, credentials, and apply; it applies a saved plan with
+  digest-pinned images, checks ECS and ALB health, and rejects post-apply drift. ECS Exec remains
+  disabled, so an owner smoke test from an allowed CIDR is still required.
 
 ### 6.7 Frontend - static chat page
 

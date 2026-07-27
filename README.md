@@ -113,6 +113,37 @@ The `primary` and `fallback` aliases resolve from the configured model variables
 evaluation is intentionally excluded from CI. It exposes the same four read-only tools as
 production and retires the old model write-proposal cases.
 
+## AWS demo deployment
+
+The manual [Deploy AWS demo](.github/workflows/deploy.yml) workflow runs only from the current
+`main` commit. Its protected `aws-demo` Environment must require approval and restrict deployment
+branches to `main`. Configure these Environment variables without placing credentials in the
+repository:
+
+| Variable | Value |
+| --- | --- |
+| `AWS_ACCOUNT_ID` | Target AWS account id. |
+| `AWS_REGION` | AWS region, normally `ap-southeast-1`. |
+| `AVAILABILITY_ZONES` | JSON list of two availability zones. |
+| `VPC_CIDR` | Demo VPC CIDR. |
+| `PUBLIC_SUBNET_CIDRS` | JSON list of two public subnet CIDRs. |
+| `PRIVATE_SUBNET_CIDRS` | JSON list of two private subnet CIDRs. |
+| `ROUTE53_HOSTED_ZONE_ID` | Hosted zone for the demo DNS name. |
+| `DNS_NAME` | Demo DNS name. |
+| `INGRESS_IPV4_CIDRS` | JSON list of allowed owner smoke-test CIDRs. |
+| `INGRESS_IPV6_CIDRS` | Optional JSON list of allowed IPv6 CIDRs; defaults to `[]`. |
+
+Run the bootstrap workflow first. It creates the secret shell; an owner then populates its JSON
+keys out of band before the first demo deployment. The deploy workflow verifies the shell and an
+`AWSCURRENT` version without reading a value, builds or verifies full-SHA images, applies one
+saved Terraform plan, checks ECS and ALB health, and rejects drift. On failure it emits bounded
+deployment diagnostics. Roll back by reverting `main` and dispatching again. An owner smoke test
+from an allowed CIDR remains required because ECS Exec is disabled.
+
+The project currently has no AWS account or protected Environment, so live deployment evidence is
+pending. After merge, record the first manual-dispatch evidence rather than treating offline tests
+as a live deployment.
+
 ## Architecture and invariants
 
 - Every book or cancel requires a fresh, single-use user confirmation.
@@ -168,7 +199,8 @@ creation of live resources.
 
 `infra/bootstrap` creates only the AWS trust and artifact foundation: the Terraform state bucket,
 GitHub OIDC provider, separate bootstrap and demo deployment roles, runtime-role permissions
-boundary, and private ECR repositories. It does not create application runtime resources.
+boundary, private ECR repositories, and the metadata-only application secret shell. It does not
+create application runtime resources or a secret value.
 
 Everything in this section is deferred until the project has an AWS account and explicitly
 chooses to perform a live deployment.

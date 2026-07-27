@@ -5,7 +5,7 @@ _Issues:_ [RB-100 #10](https://github.com/vince-e10/route-buddy/issues/10), plus
 [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2) through
 [RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8), and post-MVP reliability work
 [RB-108 #20](https://github.com/vince-e10/route-buddy/issues/20) through
-[RB-112 #24](https://github.com/vince-e10/route-buddy/issues/24)
+[RB-113 #25](https://github.com/vince-e10/route-buddy/issues/25)
 _Docs:_ all project docs live in this `docs/` folder alongside the code (owner decision
 2026-07-25, overriding the docs-in-vault convention): `high-level-requirements.md` (spec),
 `design.md` (approved RFC), `contracts.md` (normative interfaces), `execution-plan.md` (delivery),
@@ -15,11 +15,13 @@ this file (live status).
 _Last updated: 2026-07-27_
 
 **Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, DynamoDB on an AWS-compatible local emulator, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
-**Status:** MVP implemented. RB-111 defines the future AWS trust bootstrap. RB-112 defines the
-complete single-task AWS demo runtime and validates it offline. The project has no AWS account;
-no bootstrap, live plan, or apply is required.
-**Next step:** Review [RB-112 PR #39](https://github.com/vince-e10/route-buddy/pull/39).
-Continue using Compose and mocked-provider Terraform tests as the deployment simulation.
+**Status:** MVP implemented. RB-113 adds the protected manual AWS demo deployment contract with
+bootstrap-owned secret metadata, immutable images, exact-plan apply, diagnostics, and post-apply
+drift rejection. The project has no AWS account or `aws-demo` Environment, so first-run evidence
+remains pending.
+**Next step:** Merge RB-113, create the protected `aws-demo` Environment with its documented
+variables and `main` branch restriction, run bootstrap, populate the secret out of band, then
+record the first manual-dispatch evidence.
 **Open questions:**
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
@@ -27,6 +29,17 @@ Continue using Compose and mocked-provider Terraform tests as the deployment sim
 - Whether the project will ever open an AWS account and perform the deferred live-AWS path.
 
 ## Log
+
+### 2026-07-27 - RB-113 manual AWS demo deployment implemented locally
+- Added the manual, main-current, Environment-protected deployment workflow. Preflight repeats
+  the cold release gate and offline Terraform checks. Deployment uses OIDC only after approval,
+  builds or verifies immutable full-SHA ECR images, applies one guarded Terraform plan, verifies
+  ECS and ALB health, and requires no post-apply drift.
+- Moved the metadata-only application secret shell to bootstrap. The AWS root now reads the exact
+  pre-existing shell; bootstrap must run and an owner must populate a current version out of band
+  before the first demo deploy.
+- No account or protected Environment exists yet, so live deployment and owner-CIDR smoke evidence
+  remain pending after merge.
 
 ### 2026-07-27 - RB-112 PR opened
 - Opened [PR #39](https://github.com/vince-e10/route-buddy/pull/39) with the offline-validated AWS

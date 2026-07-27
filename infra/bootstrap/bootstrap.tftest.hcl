@@ -76,6 +76,19 @@ run "security_contract" {
 
   assert {
     condition = (
+      aws_secretsmanager_secret.application.name == "route-buddy/aws-demo/application" &&
+      aws_secretsmanager_secret.application.recovery_window_in_days == 7 &&
+      strcontains(local.bootstrap_policy, "ManageApplicationSecretShell") &&
+      strcontains(local.bootstrap_policy, "secret:route-buddy/aws-demo/application-*") &&
+      strcontains(local.bootstrap_policy, "secretsmanager:CreateSecret") &&
+      strcontains(local.bootstrap_policy, "secretsmanager:DeleteSecret") &&
+      !strcontains(local.bootstrap_policy, "secretsmanager:PutSecretValue")
+    )
+    error_message = "Bootstrap must own only the metadata shell and never a secret value."
+  }
+
+  assert {
+    condition = (
       strcontains(local.demo_deploy_policy, "environments/aws-demo/terraform.tfstate") &&
       strcontains(local.demo_deploy_policy, "environments/aws-demo/terraform.tfstate.tflock") &&
       strcontains(local.demo_deploy_policy, "DenyOtherState") &&
@@ -111,6 +124,30 @@ run "security_contract" {
       ] : strcontains(local.demo_deploy_policy, required)
     ])
     error_message = "The demo role must cover the provider APIs and exact-name runtime ARNs."
+  }
+
+  assert {
+    condition = (
+      !strcontains(local.demo_deploy_policy, "secretsmanager:CreateSecret") &&
+      !strcontains(local.demo_deploy_policy, "secretsmanager:DeleteSecret") &&
+      !strcontains(local.demo_deploy_policy, "secretsmanager:UpdateSecret") &&
+      !strcontains(local.demo_deploy_policy, "secretsmanager:PutSecretValue") &&
+      !strcontains(local.demo_deploy_policy, "secretsmanager:PutResourcePolicy")
+    )
+    error_message = "The demo role must not mutate the bootstrap-owned secret shell or values."
+  }
+
+  assert {
+    condition = (
+      strcontains(local.demo_deploy_policy, "ecr:DescribeImageScanFindings") &&
+      strcontains(local.demo_deploy_policy, "ecr:DescribeRepositories") &&
+      strcontains(local.demo_deploy_policy, "s3:GetBucketLocation") &&
+      strcontains(local.demo_deploy_policy, local.state_bucket_arn) &&
+      strcontains(local.demo_deploy_policy, "logs:FilterLogEvents") &&
+      strcontains(local.demo_deploy_policy, "logs:GetLogEvents") &&
+      strcontains(local.demo_deploy_policy, "log-group:/route-buddy/aws-demo/*:*")
+    )
+    error_message = "The demo role must read ECR scan findings and bounded application logs for deployment diagnostics."
   }
 
   assert {

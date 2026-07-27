@@ -11,6 +11,7 @@ locals {
   repository                 = "vince-e10/route-buddy"
   state_bucket_name          = "${local.project}-tfstate-${var.aws_account_id}-${var.aws_region}"
   demo_state_key             = "environments/aws-demo/terraform.tfstate"
+  application_secret_name    = "route-buddy/aws-demo/application"
   bootstrap_role_name        = "${local.project}-bootstrap"
   demo_deploy_role_name      = "${local.project}-aws-demo-deploy"
   adopt_github_oidc_provider = var.github_oidc_provider_arn != null && var.github_oidc_provider_arn != ""
@@ -41,4 +42,9 @@ locals {
     ManagedBy  = "terraform"
     Repository = local.repository
   }
+}
+
+resource "aws_secretsmanager_secret" "application" {
+  name                    = local.application_secret_name
+  recovery_window_in_days = 7
 }

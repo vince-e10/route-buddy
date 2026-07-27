@@ -28,6 +28,8 @@ jobs:
           terraform -chdir=infra/aws init -backend=false -input=false
           terraform -chdir=infra/aws validate
           terraform -chdir=infra/aws test
+          terraform -chdir=infra/local init -backend=false -input=false
+          terraform -chdir=infra/local validate
       - name: Prepare local environment
         run: cp .env.example .env
       - name: Run cold release gate
