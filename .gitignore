@@ -158,6 +158,13 @@ ENV/
 env.bak/
 venv.bak/
 
+# Terraform local artifacts
+.terraform/
+*.tfplan
+*.tf.disabled
+*.tfstate
+*.tfstate.*
+
 # Spyder project settings
 .spyderproject
 .spyproject

@@ -83,9 +83,10 @@ CI friction before Route Buddy needs any service beyond DynamoDB.
 the exact Terraform lifecycle, pagination, conditional-write concurrency, TTL configuration,
 persistent restart/recreation, and memory-mode checks against image digest
 `sha256:d2ecc8035822b23b8587a56eab15edd825f41d3fb80d93e8e66680410beddc08`.
-The spike used Terraform 1.9.8, AWS provider 6.56.0 under the `~> 6.0` constraint, and boto3
-1.40.67. Floci ran without an account or token and with outbound networking disabled. This
-validates the local workflow, not full AWS fidelity; production validation still runs against AWS.
+The spike used Terraform 1.9.8, AWS provider 6.56.0, and boto3 1.40.67. RB-111 later revalidated
+the complete local gate with Terraform 1.15.8 and the provider pinned exactly to 6.56.0. Floci ran
+without an account or token and with outbound networking disabled. This validates the local
+workflow, not full AWS fidelity; production validation still runs against AWS.
 
 ### 3.3 OpenRouter and cheap tool-calling models
 
@@ -359,7 +360,15 @@ FastAPI service implementing the Guest Rides surface with verbatim paths, field 
 - Local: `iac` runs plain `terraform apply` against Floci. Named volumes persist both Floci data
   and local Terraform state so restart/re-apply is a no-op and local audit data survives.
 - CI: Floci runs in memory mode; Terraform state and emulator data are disposable after the job.
-- Prod: same module, prod tfvars; prod-only modules (ECS/Fargate, ALB + TLS, VPC/SGs, least-privilege IAM task roles, Secrets Manager, CloudWatch) added at productionization; **remote encrypted state backend with locking** (S3 + lock table); Terraform manages Secrets Manager resource shells only - values injected out-of-band so no secret lands in tfstate
+- AWS bootstrap: `infra/bootstrap` creates the private, encrypted, versioned state bucket, GitHub
+  OIDC trust, separate bootstrap and demo deploy roles, a runtime-role permissions boundary, and
+  immutable ECR repositories. The S3 backend uses native `use_lockfile` locking; there is no
+  DynamoDB lock table.
+- Prod path: same data module plus environment roots; production state reserves
+  `environments/production/terraform.tfstate`. Prod-only resources include ECS/Fargate, ALB +
+  TLS, VPC/SGs, least-privilege IAM task roles, Secrets Manager, and CloudWatch. Terraform
+  manages secret resource shells only; values are injected out of band so no secret lands in
+  state.
 
 ### 6.7 Frontend - static chat page
 
@@ -405,6 +414,7 @@ class Geocoder(Protocol):
 | Prompt injection | External text (user, OneMap names, provider data) is data, never instructions; real-world actions sit behind the human confirm gate, so injection cannot book or cancel - prompt hardening is defense-in-depth only |
 | Supply chain | Pinned deps (lock file), `python:3.12-slim`, non-root containers, no secrets in layers; pip-audit + trivy in CI (prod path) |
 | Data at rest | TTLs bound PII retention (sessions, pending_actions); DynamoDB encryption at rest in prod; action-log retention policy = production decision (open question) |
+| AWS deployment trust | GitHub Actions uses short-lived OIDC sessions with exact `aud` and Environment-scoped `sub` claims. Bootstrap and application deployment roles are separate. The demo role cannot change its own trust, bootstrap resources, or runtime-role permissions boundary. |
 
 **MVP vs prod honesty** - built now: everything above except Secrets Manager (`.env` locally),
 TLS (ALB concern), real IAM enforcement, infra-level WAF/rate limits, and scanning CI. A local

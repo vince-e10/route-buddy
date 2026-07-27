@@ -1,0 +1,77 @@
+name: Bootstrap AWS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    name: plan and apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: aws-bootstrap
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_github_oidc_provider_arn: ${{ vars.OIDC_PROVIDER_ARN }}
+      TF_VAR_route53_hosted_zone_id: ${{ vars.ROUTE53_HOSTED_ZONE_ID }}
+    steps:
+      - name: Require main
+        run: test "$GITHUB_REF" = refs/heads/main
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Verify checkout
+        run: |
+          test "$(git branch --show-current)" = main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@acca2b1b2070338fb9fd1ca27ecee81d687e58e5
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/route-buddy-bootstrap
+          role-session-name: route-buddy-bootstrap
+      - name: Verify AWS identity
+        run: |
+          test -n "$TF_VAR_aws_account_id"
+          test -n "$TF_VAR_aws_region"
+          test "$(aws sts get-caller-identity --query Account --output text)" = "$TF_VAR_aws_account_id"
+      - name: Validate
+        run: |
+          terraform fmt -check -recursive infra
+          terraform -chdir=infra/bootstrap init -backend=false -input=false
+          terraform -chdir=infra/bootstrap validate
+          terraform -chdir=infra/bootstrap test
+      - name: Initialize remote state
+        run: |
+          terraform -chdir=infra/bootstrap init \
+            -input=false \
+            -reconfigure \
+            -backend-config="bucket=route-buddy-tfstate-${TF_VAR_aws_account_id}-${TF_VAR_aws_region}" \
+            -backend-config="region=${TF_VAR_aws_region}"
+      - name: Plan
+        run: terraform -chdir=infra/bootstrap plan -input=false -lock-timeout=5m -out=tfplan
+      - name: Show plan
+        run: terraform -chdir=infra/bootstrap show -no-color tfplan
+      - name: Apply exact plan
+        run: terraform -chdir=infra/bootstrap apply -input=false tfplan
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## AWS bootstrap"
+            echo
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Region: \`${TF_VAR_aws_region:-not configured}\`"
+            echo "- Result: \`${{ job.status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -14,7 +14,17 @@ jobs:
     env:
       FLOCI_STORAGE_MODE: memory
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - name: Validate Terraform
+        run: |
+          terraform fmt -check -recursive infra
+          terraform -chdir=infra/bootstrap init -backend=false -input=false
+          terraform -chdir=infra/bootstrap validate
+          terraform -chdir=infra/bootstrap test
       - name: Prepare local environment
         run: cp .env.example .env
       - name: Run cold release gate

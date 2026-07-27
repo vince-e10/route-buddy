@@ -14,7 +14,7 @@ services:
       retries: 30
 
   iac:
-    image: hashicorp/terraform:1.9
+    image: hashicorp/terraform:1.15.8
     env_file: .env
     entrypoint: ["/bin/sh", "-c"]
     command:

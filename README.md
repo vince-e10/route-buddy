@@ -128,6 +128,109 @@ structurally invalid primary proposal may receive one correction pinned to the f
 The fallback is subject to the same validation. Invalid argument text in the audit log is capped
 at 512 characters.
 
+## AWS bootstrap
+
+`infra/bootstrap` creates only the AWS trust and artifact foundation: the Terraform state bucket,
+GitHub OIDC provider, separate bootstrap and demo deployment roles, runtime-role permissions
+boundary, and private ECR repositories. It does not create application runtime resources.
+
+The implementation follows guidance accessed on 2026-07-27:
+[GitHub OIDC for AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws),
+[GitHub deployment Environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments),
+[AWS GitHub OIDC trust](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html),
+[Terraform S3 locking](https://developer.hashicorp.com/terraform/language/backend/s3), and
+[ECR tag immutability](https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-tag-mutability.html).
+
+### GitHub prerequisites
+
+Before the first workflow run:
+
+1. Create `aws-bootstrap` and `aws-demo` GitHub Environments.
+2. Restrict both to protected `main`. Configure a required reviewer and prevent self-review when
+   the repository plan supports it.
+3. Set non-secret Environment variables `AWS_ACCOUNT_ID` and `AWS_REGION`.
+4. If the AWS account already has the GitHub OIDC provider, set `OIDC_PROVIDER_ARN` in
+   `aws-bootstrap`; otherwise leave it unset.
+5. Set `ROUTE53_HOSTED_ZONE_ID` only after the later AWS demo zone is selected.
+
+Do not add AWS access keys or application secret values to GitHub.
+
+### First bootstrap and state migration
+
+An AWS administrator performs this once from an out-of-band authenticated session. Use exactly
+Terraform 1.15.8. Never paste credentials into chat, issues, variables, or workflow inputs.
+
+```sh
+export TF_VAR_aws_account_id="<12-digit account id>"
+export TF_VAR_aws_region="ap-southeast-1"
+# Only when adopting the account's existing GitHub provider:
+export TF_VAR_github_oidc_provider_arn="arn:aws:iam::<account id>:oidc-provider/token.actions.githubusercontent.com"
+
+terraform -chdir=infra/bootstrap init -backend=false -input=false
+mv infra/bootstrap/backend.tf infra/bootstrap/backend.s3.tf.disabled
+cp infra/bootstrap/local-backend.tf.example infra/bootstrap/backend.tf
+terraform -chdir=infra/bootstrap init -reconfigure -input=false
+terraform -chdir=infra/bootstrap plan -input=false -out=bootstrap.tfplan
+terraform -chdir=infra/bootstrap show -no-color bootstrap.tfplan
+terraform -chdir=infra/bootstrap apply -input=false bootstrap.tfplan
+
+mv infra/bootstrap/backend.s3.tf.disabled infra/bootstrap/backend.tf
+route_buddy_state_bucket="route-buddy-tfstate-${TF_VAR_aws_account_id}-${TF_VAR_aws_region}"
+terraform -chdir=infra/bootstrap init -migrate-state \
+  -backend-config="bucket=${route_buddy_state_bucket}" \
+  -backend-config="region=${TF_VAR_aws_region}"
+terraform -chdir=infra/bootstrap state list
+```
+
+The first `init -backend=false` validates provider installation without contacting S3. The
+temporary local backend is required because the state bucket does not exist yet. If plan or apply
+fails, restore `backend.s3.tf.disabled` to `backend.tf` before investigating; do not leave the
+working tree on the local backend.
+
+Verify the remote state and a bounded second plan before removing the local state copy:
+
+```sh
+aws s3api head-object \
+  --bucket "$route_buddy_state_bucket" \
+  --key bootstrap/terraform.tfstate
+terraform -chdir=infra/bootstrap plan -detailed-exitcode -input=false
+rm -f infra/bootstrap/terraform.tfstate infra/bootstrap/terraform.tfstate.backup
+```
+
+Exit code `0` from the second plan is the required no-change result. During any plan, native S3
+locking creates `bootstrap/terraform.tfstate.tflock` and removes it on clean completion. Do not
+continue if migration, remote-state verification, locking, or the no-change plan fails.
+
+### Routine updates and verification
+
+After the first bootstrap, every change runs by dispatching `Bootstrap AWS` from `main`. The
+protected `aws-bootstrap` Environment approves the job before it requests an OIDC token. The job
+applies only its displayed saved plan.
+
+Verify trust without changing it:
+
+```sh
+aws iam get-role --role-name route-buddy-bootstrap \
+  --query 'Role.AssumeRolePolicyDocument.Statement[0].Condition'
+aws iam get-role --role-name route-buddy-aws-demo-deploy \
+  --query 'Role.AssumeRolePolicyDocument.Statement[0].Condition'
+```
+
+Both policies must show audience `sts.amazonaws.com` and their exact GitHub Environment subject.
+An attempted second push to an existing ECR tag must return `ImageTagAlreadyExistsException`.
+
+### State recovery and break glass
+
+The AWS account administrator owns break-glass recovery. Pause bootstrap and deployment
+workflows, list versions of the affected state key, restore the selected prior S3 version as the
+current object, then run a locked Terraform plan before resuming. Restoring creates another
+version, so the displaced current state remains recoverable. Never automate force-unlock or
+destroy.
+
+Bootstrap resources are intentionally outside the application root. The demo deploy role cannot
+read bootstrap or production state, change OIDC trust, modify its own role, remove runtime-role
+permissions boundaries, or destroy the state bucket and ECR repositories.
+
 ## Known MVP limitations
 
 1. Floci is a development emulator, not proof of real AWS durability, scaling, IAM, or service

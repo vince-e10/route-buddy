@@ -5,7 +5,7 @@ _Issues:_ [RB-100 #10](https://github.com/vince-e10/route-buddy/issues/10), plus
 [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2) through
 [RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8), and post-MVP reliability work
 [RB-108 #20](https://github.com/vince-e10/route-buddy/issues/20) through
-[RB-110 #22](https://github.com/vince-e10/route-buddy/issues/22)
+[RB-111 #23](https://github.com/vince-e10/route-buddy/issues/23)
 _Docs:_ all project docs live in this `docs/` folder alongside the code (owner decision
 2026-07-25, overriding the docs-in-vault convention): `high-level-requirements.md` (spec),
 `design.md` (approved RFC), `contracts.md` (normative interfaces), `execution-plan.md` (delivery),
@@ -15,19 +15,35 @@ this file (live status).
 _Last updated: 2026-07-27_
 
 **Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, DynamoDB on an AWS-compatible local emulator, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
-**Status:** MVP implemented. RB-108 #20 and RB-109 #21 are closed. Their three-run activation
-evidence triggered RB-110 #22. RB-110 implementation now keeps model tools read-only and routes
-exact quote/trip card selections through the existing confirmation gate with user-attributed
-audit entries. Two cold release-gate runs, implementation re-review, and the required CI check
-passed in [RB-110 PR #37](https://github.com/vince-e10/route-buddy/pull/37).
-**Next step:** Owner review and merge of RB-110 PR #37.
+**Status:** MVP implemented. RB-110 is merged. RB-111 now defines the AWS trust bootstrap,
+recoverable remote state, immutable image repositories, separate bootstrap and demo deployment
+roles, and a protected manual workflow. Local and CI Terraform use exact version 1.15.8.
+**Next step:** Finish RB-111 validation, open its PR, and run the one-time administrator bootstrap
+after merge.
 **Open questions:**
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
 - Uber partner approval timeline - business, needed only for real-provider swap
-- None for deterministic write selection.
+- Which existing Route53 hosted zone the later AWS demo may update.
 
 ## Log
+
+### 2026-07-27 - RB-111 AWS bootstrap implemented locally
+- Added a single Terraform bootstrap root with private versioned S3 state, native lock files,
+  exact GitHub OIDC trust, separate roles, a runtime-role permissions boundary, and two immutable
+  ECR repositories.
+- Added an offline native Terraform security test and a manual main-only bootstrap workflow with
+  exact action SHAs, a protected Environment, one saved plan, and no destroy path.
+- Terraform format, initialization, validation, both native security tests, and workflow lint
+  passed. Two cold release-gate runs each passed 212 API/evaluator tests and 21 mock-provider
+  tests on Terraform 1.15.8.
+- Implementation review found and fixed the first-bootstrap backend circularity by using a real
+  temporary local backend for the one-time apply before migrating that state to S3.
+- Selected the documented one-time local administrator apply and state-migration path because no
+  pre-existing organization bootstrap role was supplied for this repository.
+- Upgraded the local Terraform image and required version to 1.15.8 while retaining AWS provider
+  6.56.0. Documentation consulted on 2026-07-27: current GitHub OIDC and Environment guidance,
+  AWS GitHub OIDC trust and ECR guidance, and HashiCorp S3 backend guidance.
 
 ### 2026-07-27 - RB-110 deterministic write selection implemented locally
 - Opened [RB-110 PR #37](https://github.com/vince-e10/route-buddy/pull/37).
