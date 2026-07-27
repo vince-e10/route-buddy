@@ -18,8 +18,8 @@ _Last updated: 2026-07-27_
 **Status:** MVP implemented. RB-111 defines the future AWS trust bootstrap. RB-112 defines the
 complete single-task AWS demo runtime and validates it offline. The project has no AWS account;
 no bootstrap, live plan, or apply is required.
-**Next step:** Open and review the RB-112 PR. Continue using Compose and mocked-provider Terraform
-tests as the deployment simulation.
+**Next step:** Review [RB-112 PR #39](https://github.com/vince-e10/route-buddy/pull/39).
+Continue using Compose and mocked-provider Terraform tests as the deployment simulation.
 **Open questions:**
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
@@ -27,6 +27,10 @@ tests as the deployment simulation.
 - Whether the project will ever open an AWS account and perform the deferred live-AWS path.
 
 ## Log
+
+### 2026-07-27 - RB-112 PR opened
+- Opened [PR #39](https://github.com/vince-e10/route-buddy/pull/39) with the offline-validated AWS
+  demo runtime, sanitized issue evidence, and explicit simulation-only deviations.
 
 ### 2026-07-27 - RB-112 AWS demo simulated locally
 - Added the complete AWS demo runtime under `infra/aws`: private single-task Fargate service,
