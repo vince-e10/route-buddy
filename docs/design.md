@@ -86,7 +86,7 @@ persistent restart/recreation, and memory-mode checks against image digest
 The spike used Terraform 1.9.8, AWS provider 6.56.0, and boto3 1.40.67. RB-111 later revalidated
 the complete local gate with Terraform 1.15.8 and the provider pinned exactly to 6.56.0. Floci ran
 without an account or token and with outbound networking disabled. This validates the local
-workflow, not full AWS fidelity; production validation still runs against AWS.
+workflow, not full AWS fidelity; any future production launch would still require AWS validation.
 
 ### 3.3 OpenRouter and cheap tool-calling models
 
@@ -364,11 +364,14 @@ FastAPI service implementing the Guest Rides surface with verbatim paths, field 
   OIDC trust, separate bootstrap and demo deploy roles, a runtime-role permissions boundary, and
   immutable ECR repositories. The S3 backend uses native `use_lockfile` locking; there is no
   DynamoDB lock table.
-- Prod path: same data module plus environment roots; production state reserves
-  `environments/production/terraform.tfstate`. Prod-only resources include ECS/Fargate, ALB +
-  TLS, VPC/SGs, least-privilege IAM task roles, Secrets Manager, and CloudWatch. Terraform
-  manages secret resource shells only; values are injected out of band so no secret lands in
-  state.
+- AWS demo simulation: `infra/aws` defines two public and two private subnets, one NAT gateway,
+  a DynamoDB gateway endpoint, CIDR-restricted HTTPS ALB, one private two-container Fargate task,
+  Secrets Manager metadata, bounded CloudWatch logs, and the same data module with hardened
+  settings. Terraform's mocked AWS provider validates the shape without an AWS account. No live
+  plan or apply has been run.
+- Future live path: the demo state key is `environments/aws-demo/terraform.tfstate`; production
+  reserves `environments/production/terraform.tfstate`. Terraform manages the application secret
+  shell only; values must be injected out of band so no secret lands in configuration or state.
 
 ### 6.7 Frontend - static chat page
 
@@ -409,17 +412,17 @@ class Geocoder(Protocol):
 | Secrets | Gitignored `.env` only (OpenRouter key, webhook secret, OneMap email/password); committed `.env.example` with names + empty values; `.dockerignore` excludes `.env`; never in code, git, images, logs, model context, or error messages. Prod: Secrets Manager + IAM task roles, no long-lived keys |
 | PII to LLM | **The model never sees PII.** Guest name/phone attached server-side only inside confirm-execution; the model handles places, coordinates, quotes, trip ids. OpenRouter provider routing denies data-retention/training providers |
 | Logs | Action log = access-controlled audit (full fidelity, no public endpoint, IAM-only in prod). App logs = structured JSON through a redaction filter: regex list (phone/email patterns) + exact-match masking of loaded secret env values. Tokens travel in POST bodies, never URLs |
-| Network | Only api publishes a host port; mock-uber/floci compose-internal. Webhook: shared-secret header, constant-time compare (prod: real signature verification) |
+| Network | Locally, only api publishes a host port. In the AWS definition, only the ALB is public; the task has no public IP, port 8000 accepts only ALB traffic, and mock-Uber uses localhost port 8001 inside the task. Webhook: shared-secret header, constant-time compare (prod: real signature verification) |
 | App | Pydantic at every trust boundary (user input, model tool calls, webhooks, confirms); token properties per 6.2; rate limiting on chat + confirm; same-origin CORS; security headers on static page |
 | Prompt injection | External text (user, OneMap names, provider data) is data, never instructions; real-world actions sit behind the human confirm gate, so injection cannot book or cancel - prompt hardening is defense-in-depth only |
 | Supply chain | Pinned deps (lock file), `python:3.12-slim`, non-root containers, no secrets in layers; pip-audit + trivy in CI (prod path) |
 | Data at rest | TTLs bound PII retention (sessions, pending_actions); DynamoDB encryption at rest in prod; action-log retention policy = production decision (open question) |
 | AWS deployment trust | GitHub Actions uses short-lived OIDC sessions with exact `aud` and Environment-scoped `sub` claims. Bootstrap and application deployment roles are separate. The demo role cannot change its own trust, bootstrap resources, or runtime-role permissions boundary. |
 
-**MVP vs prod honesty** - built now: everything above except Secrets Manager (`.env` locally),
-TLS (ALB concern), real IAM enforcement, infra-level WAF/rate limits, and scanning CI. A local
-emulator does not prove AWS durability, scaling, or authorization. Those are documented prod-path
-Terraform items, not faked locally.
+**MVP vs prod honesty** - local behavior is implemented and the AWS demo shape is represented in
+Terraform, including Secrets Manager metadata, TLS, IAM policies, and hardened DynamoDB settings.
+The AWS root is mock-validated only. A local emulator and mocked provider do not prove AWS
+durability, scaling, authorization, quotas, or successful resource creation.
 
 ## 10. Testing strategy
 
@@ -438,6 +441,12 @@ Terraform items, not faked locally.
 4. Constrained schemas and fallback correction reduce invalid proposals but cannot guarantee
    semantic intent. OpenRouter/provider routing can change over time. Server validation and the
    confirmation gate, not model intelligence or prompt instructions, guarantee safety.
+5. The AWS demo intentionally runs one task behind one NAT gateway. WebSocket connections,
+   session locks, and rate limits are in-process, so horizontal scaling is unsafe. Task
+   replacement also loses mock-Uber fares and trips.
+6. ECS assigns one task role to a task, not one role per container. The required single task
+   therefore gives both API and mock-Uber access to the task's DynamoDB credentials. Separate IAM
+   identities require separate tasks.
 
 ## 12. Open questions / deferred to implementation
 

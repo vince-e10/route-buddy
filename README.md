@@ -128,11 +128,50 @@ structurally invalid primary proposal may receive one correction pinned to the f
 The fallback is subject to the same validation. Invalid argument text in the audit log is capped
 at 512 characters.
 
-## AWS bootstrap
+## AWS demo simulation
+
+No AWS account is required for the current project. `infra/aws` is a simulated deployment
+definition: CI validates it with Terraform's mocked AWS provider, while application behavior is
+verified against the local Floci stack.
+
+Run the offline checks only:
+
+```sh
+terraform -chdir=infra/aws init -backend=false -input=false
+terraform -chdir=infra/aws validate
+terraform -chdir=infra/aws test
+./scripts/e2e.sh
+```
+
+Do not run the bootstrap, create GitHub Environments, populate Secrets Manager, or run an AWS
+plan/apply. The deployment note in [PR #38](https://github.com/vince-e10/route-buddy/pull/38)
+is a future live-AWS acceptance path, not a requirement for the simulated demo.
+
+The simulation covers this intended shape:
+
+```text
+Route53 -> ACM HTTPS -> public ALB
+                            |
+                   one private Fargate task
+                   +-------------------------------+
+                   | api :8000                     |
+                   | mock-uber :8001 via localhost |
+                   +---------------+---------------+
+                                   |
+                          four DynamoDB tables
+```
+
+It does not prove AWS IAM authorization, service quotas, provider behavior, or successful
+creation of live resources.
+
+## AWS bootstrap (future live AWS only)
 
 `infra/bootstrap` creates only the AWS trust and artifact foundation: the Terraform state bucket,
 GitHub OIDC provider, separate bootstrap and demo deployment roles, runtime-role permissions
 boundary, and private ECR repositories. It does not create application runtime resources.
+
+Everything in this section is deferred until the project has an AWS account and explicitly
+chooses to perform a live deployment.
 
 The implementation follows guidance accessed on 2026-07-27:
 [GitHub OIDC for AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws),
@@ -234,7 +273,7 @@ permissions boundaries, or destroy the state bucket and ECR repositories.
 ## Known MVP limitations
 
 1. Floci is a development emulator, not proof of real AWS durability, scaling, IAM, or service
-   limits. Production validation still runs against AWS.
+   limits. The AWS root is mock-validated only; no live AWS plan or apply has been run.
 2. Webhook auth is a shared secret, not signatures - prod item
 3. Single region/market (SG), single user, English-first prompts
 4. Generated exact schemas, OpenRouter's current Draft 7-based Auto Exacto routing, and one pinned
@@ -247,6 +286,12 @@ permissions boundaries, or destroy the state bucket and ECR repositories.
    when it was combined with `parallel_tool_calls: false`; removing only that routing filter
    restored inference. Route Buddy still sends sequential-call requests, denies provider data
    collection, validates exact schemas server-side, rejects multiple calls, and gates writes.
+6. The AWS demo intentionally has one task and one NAT gateway. WebSocket connections, session
+   locks, and rate limits are in-process, and mock-Uber loses fares and trips when the task is
+   replaced.
+7. ECS assigns one task role to the whole task. Because API and mock-Uber share the required
+   single task, both containers can obtain its DynamoDB credentials. Separate container IAM
+   identities require separate tasks.
 
 ## Docs
 
