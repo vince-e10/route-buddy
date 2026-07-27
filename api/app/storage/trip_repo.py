@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
+from app.config import settings
 from app.models import Driver, LEGAL_TRANSITIONS, Trip, TripStatus
 
 from ._dynamo import _from_ddb, _table, _to_ddb
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class TripRepo:
     def __init__(self) -> None:
-        self._table = _table("trips")
+        self._table = _table(settings.trips_table)
 
     async def put(self, trip: Trip) -> None:
         await asyncio.to_thread(

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
 
+from app.config import settings
 from app.models import PendingAction
 
 from ._dynamo import _from_ddb, _table, _to_ddb
@@ -10,7 +11,7 @@ from ._dynamo import _from_ddb, _table, _to_ddb
 
 class PendingActionRepo:
     def __init__(self) -> None:
-        self._table = _table("pending_actions")
+        self._table = _table(settings.pending_actions_table)
 
     async def put(self, action: PendingAction) -> None:
         await asyncio.to_thread(

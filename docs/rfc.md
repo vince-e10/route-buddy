@@ -5,7 +5,7 @@ _Issues:_ [RB-100 #10](https://github.com/vince-e10/route-buddy/issues/10), plus
 [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2) through
 [RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8), and post-MVP reliability work
 [RB-108 #20](https://github.com/vince-e10/route-buddy/issues/20) through
-[RB-111 #23](https://github.com/vince-e10/route-buddy/issues/23)
+[RB-112 #24](https://github.com/vince-e10/route-buddy/issues/24)
 _Docs:_ all project docs live in this `docs/` folder alongside the code (owner decision
 2026-07-25, overriding the docs-in-vault convention): `high-level-requirements.md` (spec),
 `design.md` (approved RFC), `contracts.md` (normative interfaces), `execution-plan.md` (delivery),
@@ -15,18 +15,34 @@ this file (live status).
 _Last updated: 2026-07-27_
 
 **Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, DynamoDB on an AWS-compatible local emulator, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
-**Status:** MVP implemented. RB-110 is merged. RB-111 now defines the AWS trust bootstrap,
-recoverable remote state, immutable image repositories, separate bootstrap and demo deployment
-roles, and a protected manual workflow. Local and CI Terraform use exact version 1.15.8.
-**Next step:** Review [RB-111 PR #38](https://github.com/vince-e10/route-buddy/pull/38), then run
-the one-time administrator bootstrap after merge.
+**Status:** MVP implemented. RB-111 defines the future AWS trust bootstrap. RB-112 defines the
+complete single-task AWS demo runtime and validates it offline. The project has no AWS account;
+no bootstrap, live plan, or apply is required.
+**Next step:** Review [RB-112 PR #39](https://github.com/vince-e10/route-buddy/pull/39).
+Continue using Compose and mocked-provider Terraform tests as the deployment simulation.
 **Open questions:**
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
 - Uber partner approval timeline - business, needed only for real-provider swap
-- Which existing Route53 hosted zone the later AWS demo may update.
+- Whether the project will ever open an AWS account and perform the deferred live-AWS path.
 
 ## Log
+
+### 2026-07-27 - RB-112 PR opened
+- Opened [PR #39](https://github.com/vince-e10/route-buddy/pull/39) with the offline-validated AWS
+  demo runtime, sanitized issue evidence, and explicit simulation-only deviations.
+
+### 2026-07-27 - RB-112 AWS demo simulated locally
+- Added the complete AWS demo runtime under `infra/aws`: private single-task Fargate service,
+  CIDR-restricted HTTPS ALB, two-AZ VPC with one NAT, DynamoDB gateway endpoint, reused hardened
+  data module, Secrets Manager metadata, exact IAM policies, and bounded logs.
+- Added mocked-provider Terraform tests for network exposure, one-task topology, image and CIDR
+  validation, secret injection, table names, IAM resource scope, optional IPv6, and access logs.
+- Confirmed the project is simulation-only. No AWS account exists, no live plan or apply was run,
+  and the deployment note in [PR #38](https://github.com/vince-e10/route-buddy/pull/38) is
+  deferred.
+- Recorded the ECS ceiling: one task has one shared task role, so separate API and mock-Uber IAM
+  identities require separate tasks.
 
 ### 2026-07-27 - RB-111 PR opened
 - Opened [PR #38](https://github.com/vince-e10/route-buddy/pull/38) with the locally verified AWS

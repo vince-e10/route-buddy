@@ -6,3 +6,18 @@ variable "table_names" {
     pending_actions = string
   })
 }
+
+variable "point_in_time_recovery_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "deletion_protection_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "server_side_encryption_enabled" {
+  type    = bool
+  default = false
+}

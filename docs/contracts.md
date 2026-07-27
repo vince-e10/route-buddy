@@ -44,6 +44,10 @@ AWS_ENDPOINT_URL=http://floci:4566
 AWS_ACCESS_KEY_ID=test
 AWS_SECRET_ACCESS_KEY=test
 AWS_DEFAULT_REGION=ap-southeast-1
+SESSIONS_TABLE=sessions
+TRIPS_TABLE=trips
+ACTION_LOG_TABLE=action_log
+PENDING_ACTIONS_TABLE=pending_actions
 
 # --- Ride provider (Uber adapter) ---
 UBER_BASE_URL=http://mock-uber:8001
@@ -484,6 +488,7 @@ appear in `executed` payloads (the action log is the access-controlled audit tra
 | `api/app/ws/manager.py`, `api/app/routers/ws.py` (fill stub), `api/app/static/index.html` (replaces RB-101's initial placeholder), `api/tests/ws/**` | [RB-106 #7](https://github.com/vince-e10/route-buddy/issues/7) |
 | `scripts/**`, `api/tests/e2e/**`, `README.md` | [RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8) |
 | `infra/bootstrap/**`, `.github/workflows/bootstrap.yml`, AWS bootstrap sections in project docs | [RB-111 #23](https://github.com/vince-e10/route-buddy/issues/23) |
+| `infra/aws/**`, AWS runtime sections in project docs | [RB-112 #24](https://github.com/vince-e10/route-buddy/issues/24) |
 
 `api/app/main.py` is written ONCE in RB-101 with all router includes pointing at stub routers;
 later issues fill their stub router files and never touch `main.py`.
@@ -508,3 +513,33 @@ state and lock objects, push only to the two private repositories, and pass only
 `route-buddy-aws-demo-execution` and `route-buddy-aws-demo-task` to ECS. Roles it creates must
 use the bootstrap-owned application permissions boundary. Bootstrap resources have no
 application-workflow destroy path.
+
+## 15. Simulated AWS demo runtime contract
+
+The current project has no AWS account. `infra/aws` is validated offline with Terraform's mocked
+AWS provider and is not applied. The PR #38 bootstrap deployment note is deferred until a future
+live-AWS decision.
+
+| Item | Exact contract |
+|---|---|
+| Root | `infra/aws` |
+| Backend config | `backends/aws-demo.hcl`; key `environments/aws-demo/terraform.tfstate`; native `.tflock` |
+| Offline gate | backend-free init, validate, and `terraform test` |
+| Network | two public and two private subnets across two AZs; one NAT; DynamoDB gateway endpoint |
+| Public surface | CIDR-restricted ALB ports 80/443; HTTPS listener; 300-second idle timeout |
+| Task | one private Fargate task, desired count 1, no public IP |
+| Containers | API port 8000; mock-Uber port 8001 through localhost only |
+| Images | exact ECR digest syntax; tags rejected |
+| Data | data module owns four `route-buddy-aws-demo-*` tables with SSE, PITR, and deletion protection |
+| Secret | metadata-only `route-buddy/aws-demo/application`; no Terraform secret version or value |
+| Logs | separate API and mock-Uber groups; 30-day retention |
+
+AWS omits `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+`FLOCI_STORAGE_MODE`, and `FLOCI_STORAGE_PERSISTENT_PATH`. The API receives the exact four table
+names from the data module. Local defaults remain `sessions`, `trips`, `action_log`, and
+`pending_actions`.
+
+The one task has one shared ECS task role with exact access to the four tables and trips
+`by_session` index. AWS does not support assigning different task roles to containers in the same
+task, so mock-Uber can technically obtain those credentials. Separate IAM identities require
+separate tasks and are outside the single-task demo contract.

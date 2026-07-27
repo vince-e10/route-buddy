@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from app.config import settings
 from app.models import ActionLogEntry
 
 from ._dynamo import _table, _to_ddb
@@ -9,7 +10,7 @@ from ._dynamo import _table, _to_ddb
 
 class ActionLogRepo:
     def __init__(self) -> None:
-        self._table = _table("action_log")
+        self._table = _table(settings.action_log_table)
 
     async def append(self, entry: ActionLogEntry) -> None:
         value = entry.model_copy(deep=True)

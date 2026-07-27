@@ -40,6 +40,10 @@ class Settings:
     sim_speed: float
     mock_deterministic: bool
     webhook_target_url: str
+    sessions_table: str = "sessions"
+    trips_table: str = "trips"
+    action_log_table: str = "action_log"
+    pending_actions_table: str = "pending_actions"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -69,6 +73,10 @@ class Settings:
             sim_speed=float(get("SIM_SPEED", "1.0")),
             mock_deterministic=_bool(get("MOCK_DETERMINISTIC", "0")),
             webhook_target_url=get("WEBHOOK_TARGET_URL", "http://api:8000/webhooks/uber"),
+            sessions_table=get("SESSIONS_TABLE", "sessions"),
+            trips_table=get("TRIPS_TABLE", "trips"),
+            action_log_table=get("ACTION_LOG_TABLE", "action_log"),
+            pending_actions_table=get("PENDING_ACTIONS_TABLE", "pending_actions"),
         )
 
     @property
