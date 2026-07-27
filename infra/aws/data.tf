@@ -7,6 +7,10 @@ locals {
   }
 }
 
+data "aws_secretsmanager_secret" "application" {
+  name = "route-buddy/aws-demo/application"
+}
+
 module "data" {
   source = "../modules/data"
 

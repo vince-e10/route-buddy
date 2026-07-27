@@ -54,7 +54,7 @@ locals {
         Sid      = "InjectApplicationSecret"
         Effect   = "Allow"
         Action   = "secretsmanager:GetSecretValue"
-        Resource = aws_secretsmanager_secret.application.arn
+        Resource = data.aws_secretsmanager_secret.application.arn
       },
     ]
   })

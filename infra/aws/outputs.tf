@@ -27,7 +27,7 @@ output "table_names" {
 }
 
 output "secret_arn" {
-  value = aws_secretsmanager_secret.application.arn
+  value = data.aws_secretsmanager_secret.application.arn
 }
 
 output "log_group_names" {

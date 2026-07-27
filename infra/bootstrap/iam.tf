@@ -140,6 +140,12 @@ locals {
       Resource = "${local.state_bucket_arn}/${local.demo_state_key}"
     },
     {
+      Sid      = "ReadDemoStateBucketLocation"
+      Effect   = "Allow"
+      Action   = "s3:GetBucketLocation"
+      Resource = local.state_bucket_arn
+    },
+    {
       Sid      = "LockDemoState"
       Effect   = "Allow"
       Action   = ["s3:DeleteObject", "s3:GetObject", "s3:PutObject"]
@@ -167,7 +173,9 @@ locals {
         "ecr:BatchCheckLayerAvailability",
         "ecr:BatchGetImage",
         "ecr:CompleteLayerUpload",
+        "ecr:DescribeImageScanFindings",
         "ecr:DescribeImages",
+        "ecr:DescribeRepositories",
         "ecr:GetDownloadUrlForLayer",
         "ecr:InitiateLayerUpload",
         "ecr:PutImage",
@@ -289,12 +297,6 @@ locals {
         "logs:PutRetentionPolicy",
         "logs:TagResource",
         "logs:UntagResource",
-        "secretsmanager:CreateSecret",
-        "secretsmanager:DeleteSecret",
-        "secretsmanager:PutResourcePolicy",
-        "secretsmanager:TagResource",
-        "secretsmanager:UntagResource",
-        "secretsmanager:UpdateSecret",
       ]
       Resource = [
         "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/${local.project}-aws-demo-*",
@@ -310,7 +312,15 @@ locals {
         "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:loadbalancer/app/${local.project}-aws-demo-*/*",
         "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:targetgroup/${local.project}-aws-demo-*/*",
         "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/route-buddy/aws-demo/*",
-        "arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:route-buddy/aws-demo/*",
+      ]
+    },
+    {
+      Sid    = "ReadApplicationLogs"
+      Effect = "Allow"
+      Action = ["logs:DescribeLogStreams", "logs:FilterLogEvents", "logs:GetLogEvents"]
+      Resource = [
+        "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/route-buddy/aws-demo/*",
+        "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/route-buddy/aws-demo/*:*",
       ]
     },
     {
@@ -480,6 +490,18 @@ locals {
         Effect   = "Allow"
         Action   = "ecr:*"
         Resource = local.ecr_repository_arns
+      },
+      {
+        Sid    = "ManageApplicationSecretShell"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:CreateSecret",
+          "secretsmanager:DeleteSecret",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:TagResource",
+          "secretsmanager:UntagResource",
+        ]
+        Resource = "arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:route-buddy/aws-demo/application-*"
       },
     ]
   })

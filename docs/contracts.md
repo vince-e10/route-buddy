@@ -543,3 +543,28 @@ The one task has one shared ECS task role with exact access to the four tables a
 `by_session` index. AWS does not support assigning different task roles to containers in the same
 task, so mock-Uber can technically obtain those credentials. Separate IAM identities require
 separate tasks and are outside the single-task demo contract.
+
+## 16. AWS demo deployment contract
+
+`deploy.yml` is manual-only and deploys only a current `main` SHA after the protected `aws-demo`
+Environment approves it. The Environment has `AWS_ACCOUNT_ID`, `AWS_REGION`, `AVAILABILITY_ZONES`,
+`VPC_CIDR`, `PUBLIC_SUBNET_CIDRS`, `PRIVATE_SUBNET_CIDRS`, `ROUTE53_HOSTED_ZONE_ID`, `DNS_NAME`,
+`INGRESS_IPV4_CIDRS`, and optional `INGRESS_IPV6_CIDRS` (default `[]`), and must require approval
+with `main` as its deployment branch.
+
+Bootstrap creates metadata-only `route-buddy/aws-demo/application`; it never creates a version.
+Before the first deploy, an owner populates the required JSON keys out of band. The application
+root reads that exact existing shell and the execution role reads only its ARN. The demo role can
+describe the shell and versions but cannot mutate either the shell or a value.
+
+The workflow builds or verifies the two immutable full-SHA tags, resolves ECR digests, waits for
+scan completion, applies one reviewed plan, permits only a create-delete replacement of the ECS
+task definition, and rejects every other delete. It then requires one desired/running task, a
+completed primary rollout, one healthy target, healthy API and mock-Uber containers, non-root
+users, exact digests, and a zero-change second plan. API availability is ALB target health and
+mock-Uber availability is ECS container health because ECS Exec is disabled; owner smoke coverage
+from an allowed CIDR remains required. Failure diagnostics are bounded and must not print values,
+environment variables, or auth headers. Rollback is revert `main` then redispatch.
+
+There is no AWS account or protected Environment yet. Offline Terraform tests are not live
+evidence; the first successful post-merge dispatch must be recorded.

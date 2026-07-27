@@ -90,8 +90,8 @@ override_resource {
   }
 }
 
-override_resource {
-  target = aws_secretsmanager_secret.application
+override_data {
+  target = data.aws_secretsmanager_secret.application
   values = {
     name = "route-buddy/aws-demo/application"
     arn  = "arn:aws:secretsmanager:ap-southeast-1:000000000000:secret:route-buddy/aws-demo/application-mock"
@@ -278,7 +278,7 @@ run "demo_shape" {
         for item in one([
           for container in jsondecode(aws_ecs_task_definition.demo.container_definitions) :
           container if container.name == "api"
-        ]).secrets : startswith(item.valueFrom, aws_secretsmanager_secret.application.arn)
+        ]).secrets : startswith(item.valueFrom, data.aws_secretsmanager_secret.application.arn)
       ])
     )
     error_message = "The API must inject only the exact seven JSON secret keys."
@@ -315,8 +315,8 @@ run "demo_shape" {
     condition = one([
       for statement in jsondecode(aws_iam_role_policy.execution.policy).Statement :
       statement.Resource if statement.Sid == "InjectApplicationSecret"
-    ]) == aws_secretsmanager_secret.application.arn
-    error_message = "Only the execution role may read the one application secret."
+    ]) == data.aws_secretsmanager_secret.application.arn
+    error_message = "Only the execution role may read the pre-existing one application secret."
   }
 }
 

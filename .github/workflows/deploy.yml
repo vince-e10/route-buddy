@@ -1,0 +1,334 @@
+name: Deploy AWS demo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aws-demo
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      source_manifest: ${{ steps.source.outputs.source_manifest }}
+    env:
+      FLOCI_STORAGE_MODE: memory
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Require current main commit
+        id: source
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags origin main
+          remote_main="$(git rev-parse origin/main)"
+          test "$GITHUB_SHA" = "$remote_main"
+          api_tree="$(git rev-parse "$GITHUB_SHA:api")"
+          mock_uber_tree="$(git rev-parse "$GITHUB_SHA:mock-uber")"
+          manifest="commit=$GITHUB_SHA;ref=$GITHUB_REF;remote_main=$remote_main;api_tree=$api_tree;mock_uber_tree=$mock_uber_tree"
+          printf 'source_manifest=%s\n' "$manifest" >> "$GITHUB_OUTPUT"
+          {
+            echo '## AWS demo preflight'
+            echo
+            echo "- Source manifest: \`$manifest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - name: Validate Terraform
+        run: |
+          set -euo pipefail
+          terraform fmt -check -recursive infra
+          terraform -chdir=infra/bootstrap init -backend=false -input=false
+          terraform -chdir=infra/bootstrap validate
+          terraform -chdir=infra/bootstrap test
+          terraform -chdir=infra/aws init -backend=false -input=false
+          terraform -chdir=infra/aws validate
+          terraform -chdir=infra/aws test
+          terraform -chdir=infra/local init -backend=false -input=false
+          terraform -chdir=infra/local validate
+      - name: Prepare local environment
+        run: cp .env.example .env
+      - name: Run cold release gate
+        run: scripts/e2e.sh
+      - name: Repeat cold release gate
+        run: scripts/e2e.sh
+      - name: Dump container logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Tear down stack
+        if: always()
+        run: docker compose down -v
+
+  deploy:
+    name: deploy
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: aws-demo
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_availability_zones: ${{ vars.AVAILABILITY_ZONES }}
+      TF_VAR_vpc_cidr: ${{ vars.VPC_CIDR }}
+      TF_VAR_public_subnet_cidrs: ${{ vars.PUBLIC_SUBNET_CIDRS }}
+      TF_VAR_private_subnet_cidrs: ${{ vars.PRIVATE_SUBNET_CIDRS }}
+      TF_VAR_route53_hosted_zone_id: ${{ vars.ROUTE53_HOSTED_ZONE_ID }}
+      TF_VAR_dns_name: ${{ vars.DNS_NAME }}
+      TF_VAR_ingress_ipv4_cidrs: ${{ vars.INGRESS_IPV4_CIDRS }}
+      TF_VAR_ingress_ipv6_cidrs: ${{ vars.INGRESS_IPV6_CIDRS || '[]' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Validate required Environment variables
+        run: |
+          set -euo pipefail
+          missing=()
+          for required in \
+            AWS_ACCOUNT_ID:TF_VAR_aws_account_id AWS_REGION:TF_VAR_aws_region \
+            AVAILABILITY_ZONES:TF_VAR_availability_zones VPC_CIDR:TF_VAR_vpc_cidr \
+            PUBLIC_SUBNET_CIDRS:TF_VAR_public_subnet_cidrs PRIVATE_SUBNET_CIDRS:TF_VAR_private_subnet_cidrs \
+            ROUTE53_HOSTED_ZONE_ID:TF_VAR_route53_hosted_zone_id DNS_NAME:TF_VAR_dns_name \
+            INGRESS_IPV4_CIDRS:TF_VAR_ingress_ipv4_cidrs; do
+            name="${required%%:*}"
+            variable="${required#*:}"
+            test -n "${!variable:-}" || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required aws-demo Environment variable(s): %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+      - name: Recheck current main before credentials
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags origin main
+          test "$GITHUB_SHA" = "$(git rev-parse origin/main)"
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/route-buddy-aws-demo-deploy
+          role-session-name: route-buddy-aws-demo-deploy
+      - name: Verify deployment inputs
+        run: |
+          set -euo pipefail
+          test "$(aws sts get-caller-identity --query Account --output text)" = "$TF_VAR_aws_account_id"
+          state_bucket="route-buddy-tfstate-${TF_VAR_aws_account_id}-${TF_VAR_aws_region}"
+          bucket_region="$(aws s3api get-bucket-location --bucket "$state_bucket" --query LocationConstraint --output text)"
+          test "$bucket_region" = "$TF_VAR_aws_region"
+          for repository in route-buddy/api route-buddy/mock-uber; do
+            aws ecr describe-repositories --repository-names "$repository" >/dev/null
+          done
+          aws secretsmanager describe-secret --secret-id route-buddy/aws-demo/application >/dev/null
+          aws secretsmanager list-secret-version-ids \
+            --secret-id route-buddy/aws-demo/application \
+            --query "Versions[?contains(VersionStages, 'AWSCURRENT')].VersionId | [0]" \
+            --output text | grep -qv '^None$'
+          printf 'STATE_BUCKET=%s\n' "$state_bucket" >> "$GITHUB_ENV"
+      - name: Recheck current main before image publication
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          test "$GITHUB_SHA" = "$(git rev-parse origin/main)"
+      - name: Build, verify, and push immutable images
+        run: |
+          set -euo pipefail
+          registry="${TF_VAR_aws_account_id}.dkr.ecr.${TF_VAR_aws_region}.amazonaws.com"
+          aws ecr get-login-password --region "$TF_VAR_aws_region" | docker login --username AWS --password-stdin "$registry"
+
+          publish() {
+            context="$1"
+            repository="$2"
+            output_name="$3"
+            image="$registry/$repository:$GITHUB_SHA"
+            if docker manifest inspect "$image" >/dev/null 2>&1; then
+              docker pull "$image"
+              test "$(docker inspect "$image" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$GITHUB_SHA"
+            else
+              docker build \
+                --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+                --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+                --tag "$image" \
+                "$context"
+              git fetch --no-tags origin main
+              test "$GITHUB_SHA" = "$(git rev-parse origin/main)"
+              docker push "$image"
+            fi
+            digest="$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$GITHUB_SHA" --query 'imageDetails[0].imageDigest' --output text)"
+            test "$digest" != None
+            for attempt in $(seq 1 20); do
+              status="$(aws ecr describe-image-scan-findings --repository-name "$repository" --image-id imageTag="$GITHUB_SHA" --query 'imageScanStatus.status' --output text 2>/dev/null || true)"
+              case "$status" in
+                COMPLETE|ACTIVE)
+                  findings="$(aws ecr describe-image-scan-findings --repository-name "$repository" --image-id imageTag="$GITHUB_SHA" --query 'imageScanFindings.findingSeverityCounts' --output json)"
+                  printf '%s scan status %s findings: %s\n' "$repository" "$status" "$findings" >> "$GITHUB_STEP_SUMMARY"
+                  break
+                  ;;
+                FAILED)
+                  echo "$repository image scan failed" >&2
+                  exit 1
+                  ;;
+                IN_PROGRESS|PENDING|""|None|ERROR)
+                  test "$attempt" -lt 20
+                  sleep 15
+                  ;;
+                *)
+                  printf '%s scan terminal status: %s\n' "$repository" "$status" >> "$GITHUB_STEP_SUMMARY"
+                  break
+                  ;;
+              esac
+            done
+            printf '%s=%s@%s\n' "$output_name" "${registry}/${repository}" "$digest" >> "$GITHUB_OUTPUT"
+            printf 'TF_VAR_%s=%s@%s\n' "$output_name" "${registry}/${repository}" "$digest" >> "$GITHUB_ENV"
+          }
+
+          publish api route-buddy/api api_image
+          publish mock-uber route-buddy/mock-uber mock_uber_image
+        id: images
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - name: Plan exact deployment
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra/aws init \
+            -input=false \
+            -reconfigure \
+            -backend-config=backends/aws-demo.hcl \
+            -backend-config="bucket=$STATE_BUCKET" \
+            -backend-config="region=$TF_VAR_aws_region"
+          terraform -chdir=infra/aws plan \
+            -input=false \
+            -lock-timeout=5m \
+            -out=tfplan
+          {
+            echo '### Saved Terraform plan'
+            echo '```text'
+            terraform -chdir=infra/aws show -no-color tfplan
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          terraform -chdir=infra/aws show -json tfplan | jq -e '
+            all(.resource_changes[]?;
+              if (.change.actions | index("delete")) then
+                .address == "aws_ecs_task_definition.demo" and .change.actions == ["create", "delete"]
+              else true end
+            )
+          ' >/dev/null
+          printf 'PLAN_RESULT=saved plan reviewed and delete guard passed\n' >> "$GITHUB_ENV"
+      - name: Recheck current main before apply
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          test "$GITHUB_SHA" = "$(git rev-parse origin/main)"
+      - name: Apply exact deployment plan
+        run: |
+          terraform -chdir=infra/aws apply -input=false tfplan
+          printf 'APPLY_RESULT=saved plan applied successfully\n' >> "$GITHUB_ENV"
+      - name: Verify deployed service
+        run: |
+          set -euo pipefail
+          cluster=route-buddy-aws-demo
+          service=route-buddy-aws-demo
+          aws ecs wait services-stable --cluster "$cluster" --services "$service"
+          service_json="$(aws ecs describe-services --cluster "$cluster" --services "$service")"
+          echo "$service_json" | jq -e '
+            .services[0] as $service |
+            $service.desiredCount == 1 and $service.runningCount == 1 and $service.pendingCount == 0 and
+            ([ $service.deployments[] | select(.status == "PRIMARY") ] | length == 1 and .[0].rolloutState == "COMPLETED")
+          ' >/dev/null
+          target_group="$(terraform -chdir=infra/aws output -raw target_group_arn)"
+          aws elbv2 describe-target-health --target-group-arn "$target_group" | jq -e '
+            (.TargetHealthDescriptions | length) == 1 and
+            .TargetHealthDescriptions[0].TargetHealth.State == "healthy"
+          ' >/dev/null
+          task_definition_arn="$(echo "$service_json" | jq -r '.services[0].deployments[] | select(.status == "PRIMARY") | .taskDefinition')"
+          task="$(aws ecs list-tasks --cluster "$cluster" --service-name "$service" --desired-status RUNNING --query 'taskArns[0]' --output text)"
+          task_json="$(aws ecs describe-tasks --cluster "$cluster" --tasks "$task")"
+          echo "$task_json" | jq -e \
+            --arg api "${{ steps.images.outputs.api_image }}" \
+            --arg mock "${{ steps.images.outputs.mock_uber_image }}" '
+              .tasks[0].containers as $containers |
+              ($containers | length) == 2 and
+              ([ $containers[] | select(.name == "api") | .healthStatus == "HEALTHY" and (.imageDigest | endswith($api | split("@")[-1])) ] | length == 1 and all) and
+              ([ $containers[] | select(.name == "mock-uber") | .healthStatus == "HEALTHY" and (.imageDigest | endswith($mock | split("@")[-1])) ] | length == 1 and all)
+            ' >/dev/null
+          aws ecs describe-task-definition --task-definition "$task_definition_arn" --output json | jq -e \
+            --arg api "${{ steps.images.outputs.api_image }}" \
+            --arg mock "${{ steps.images.outputs.mock_uber_image }}" '
+            .taskDefinition.containerDefinitions as $containers |
+            ($containers | length) == 2 and
+            ([ $containers[] | select(.name == "api" and .image == $api and .user == "app") ] | length == 1) and
+            ([ $containers[] | select(.name == "mock-uber" and .image == $mock and .user == "app") ] | length == 1)
+          ' >/dev/null
+          printf 'TASK_REVISION=%s\n' "$task_definition_arn" >> "$GITHUB_ENV"
+          printf 'HEALTH_CHECKS=%s\n' 'ECS desired/running/healthy=1; exactly one PRIMARY rollout COMPLETED; one healthy ALB target; api and mock-uber HEALTHY; task definition images and users app; exact ECR digests' >> "$GITHUB_ENV"
+      - name: Require no post-apply drift
+        run: |
+          set +e
+          terraform -chdir=infra/aws plan -detailed-exitcode -input=false -lock-timeout=5m >/dev/null
+          status=$?
+          set -e
+          test "$status" -eq 0
+          printf 'NO_DRIFT=true\n' >> "$GITHUB_ENV"
+      - name: Failure diagnostics
+        if: failure()
+        run: |
+          set +e
+          aws ecs describe-services --cluster route-buddy-aws-demo --services route-buddy-aws-demo \
+            --query 'services[0].events[:10].[createdAt,message]' --output text
+          read -r -a stopped_tasks <<< "$(aws ecs list-tasks \
+            --cluster route-buddy-aws-demo \
+            --service-name route-buddy-aws-demo \
+            --desired-status STOPPED \
+            --query 'taskArns[:5]' \
+            --output text)"
+          if [ "${stopped_tasks[0]:-None}" != None ]; then
+            aws ecs describe-tasks --cluster route-buddy-aws-demo --tasks "${stopped_tasks[@]}" \
+              --query 'tasks[].{taskArn:taskArn,stopCode:stopCode,stoppedReason:stoppedReason,containerReasons:containers[].reason}' \
+              --output json
+          fi
+          aws elbv2 describe-target-health \
+            --target-group-arn "$(terraform -chdir=infra/aws output -raw target_group_arn 2>/dev/null)"
+          for group in /route-buddy/aws-demo/api /route-buddy/aws-demo/mock-uber; do
+            aws logs tail "$group" --since 15m --format short 2>/dev/null | tail -n 50 | \
+              sed -E 's/^.*(authorization|x-webhook-secret).*$/[REDACTED header line]/I'
+          done
+          true
+      - name: Deployment summary
+        if: always()
+        run: |
+          {
+            echo '## AWS demo deployment'
+            echo
+            echo "- Actor/time: \`$GITHUB_ACTOR\` / \`$(date -u +%Y-%m-%dT%H:%M:%SZ)\`"
+            echo "- Source manifest: \`${{ needs.preflight.outputs.source_manifest }}\`"
+            echo "- Images: \`${{ steps.images.outputs.api_image || 'not built' }}\`, \`${{ steps.images.outputs.mock_uber_image || 'not built' }}\`"
+            echo "- Plan: \`${PLAN_RESULT:-not completed}\`"
+            echo "- Apply: \`${APPLY_RESULT:-not completed}\`"
+            echo "- Task revision: \`${TASK_REVISION:-not available}\`"
+            echo "- Endpoint: \`https://${TF_VAR_dns_name:-not available}\`"
+            echo "- Health checks: ${HEALTH_CHECKS:-not completed}"
+            echo "- No drift: \`${NO_DRIFT:-not verified}\`"
+            echo '- Smoke coverage: API availability is ALB target health; mock-Uber is ECS container health. ECS Exec is disabled. Owner smoke from an allowed CIDR remains required.'
+            echo '- Rollback: revert main and redispatch this workflow.'
+          } >> "$GITHUB_STEP_SUMMARY"

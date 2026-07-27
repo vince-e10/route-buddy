@@ -39,11 +39,6 @@ resource "aws_cloudwatch_log_group" "mock_uber" {
   retention_in_days = 30
 }
 
-resource "aws_secretsmanager_secret" "application" {
-  name                    = "route-buddy/aws-demo/application"
-  recovery_window_in_days = 7
-}
-
 resource "aws_ecs_cluster" "demo" {
   name = local.name_prefix
 }
@@ -56,6 +51,10 @@ resource "aws_ecs_task_definition" "demo" {
   memory                   = "1024"
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   runtime_platform {
     operating_system_family = "LINUX"
@@ -77,7 +76,7 @@ resource "aws_ecs_task_definition" "demo" {
       ]
       secrets = [{
         name      = "WEBHOOK_SHARED_SECRET"
-        valueFrom = "${aws_secretsmanager_secret.application.arn}:WEBHOOK_SHARED_SECRET::"
+        valueFrom = "${data.aws_secretsmanager_secret.application.arn}:WEBHOOK_SHARED_SECRET::"
       }]
       healthCheck = {
         command = [
@@ -118,7 +117,7 @@ resource "aws_ecs_task_definition" "demo" {
       secrets = [
         for key in local.secret_keys : {
           name      = key
-          valueFrom = "${aws_secretsmanager_secret.application.arn}:${key}::"
+          valueFrom = "${data.aws_secretsmanager_secret.application.arn}:${key}::"
         }
       ]
       healthCheck = {
