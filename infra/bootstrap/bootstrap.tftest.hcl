@@ -95,6 +95,25 @@ run "security_contract" {
   }
 
   assert {
+    condition = alltrue([
+      for required in [
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:UpdateTimeToLive",
+        "iam:CreateServiceLinkedRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "logs:ListTagsForResource",
+        "cluster/route-buddy-aws-demo",
+        "service/route-buddy-aws-demo/route-buddy-aws-demo",
+        "task-definition/route-buddy-aws-demo:*",
+        "loadbalancer/app/route-buddy-aws-demo/*",
+        "listener/app/route-buddy-aws-demo/*/*",
+      ] : strcontains(local.demo_deploy_policy, required)
+    ])
+    error_message = "The demo role must cover the provider APIs and exact-name runtime ARNs."
+  }
+
+  assert {
     condition = (
       strcontains(local.demo_deploy_policy, "DenySelfAndBootstrapMutation") &&
       strcontains(local.demo_deploy_policy, "DenyBoundaryRemoval")

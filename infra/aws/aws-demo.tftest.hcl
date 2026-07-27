@@ -155,6 +155,11 @@ run "demo_shape" {
   }
 
   assert {
+    condition     = module.data.all_protections_enabled
+    error_message = "Every AWS demo table must enable deletion protection, PITR, and SSE."
+  }
+
+  assert {
     condition = (
       length(jsondecode(aws_ecs_task_definition.demo.container_definitions)) == 2 &&
       one([

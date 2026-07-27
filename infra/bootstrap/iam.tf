@@ -253,12 +253,16 @@ locals {
         "acm:ListTagsForCertificate",
         "dynamodb:DescribeContinuousBackups",
         "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
         "dynamodb:ListTagsOfResource",
         "ec2:Describe*",
         "ecs:Describe*",
         "ecs:List*",
         "elasticloadbalancing:Describe*",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
         "logs:Describe*",
+        "logs:ListTagsForResource",
         "route53:Get*",
         "route53:List*",
         "secretsmanager:DescribeSecret",
@@ -277,6 +281,7 @@ locals {
         "dynamodb:UntagResource",
         "dynamodb:UpdateContinuousBackups",
         "dynamodb:UpdateTable",
+        "dynamodb:UpdateTimeToLive",
         "ecs:*",
         "elasticloadbalancing:*",
         "logs:CreateLogGroup",
@@ -293,15 +298,37 @@ locals {
       ]
       Resource = [
         "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/${local.project}-aws-demo-*",
+        "arn:aws:ecs:${var.aws_region}:${var.aws_account_id}:cluster/${local.project}-aws-demo",
         "arn:aws:ecs:${var.aws_region}:${var.aws_account_id}:cluster/${local.project}-aws-demo-*",
+        "arn:aws:ecs:${var.aws_region}:${var.aws_account_id}:service/${local.project}-aws-demo/${local.project}-aws-demo",
         "arn:aws:ecs:${var.aws_region}:${var.aws_account_id}:service/${local.project}-aws-demo-*/*",
+        "arn:aws:ecs:${var.aws_region}:${var.aws_account_id}:task-definition/${local.project}-aws-demo:*",
         "arn:aws:ecs:${var.aws_region}:${var.aws_account_id}:task-definition/${local.project}-aws-demo-*:*",
+        "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:listener/app/${local.project}-aws-demo/*/*",
         "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:listener/app/${local.project}-aws-demo-*/*/*",
+        "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:loadbalancer/app/${local.project}-aws-demo/*",
         "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:loadbalancer/app/${local.project}-aws-demo-*/*",
         "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:targetgroup/${local.project}-aws-demo-*/*",
         "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/route-buddy/aws-demo/*",
         "arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:route-buddy/aws-demo/*",
       ]
+    },
+    {
+      Sid    = "CreateRequiredServiceLinkedRoles"
+      Effect = "Allow"
+      Action = "iam:CreateServiceLinkedRole"
+      Resource = [
+        "arn:aws:iam::${var.aws_account_id}:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS",
+        "arn:aws:iam::${var.aws_account_id}:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing",
+      ]
+      Condition = {
+        StringEquals = {
+          "iam:AWSServiceName" = [
+            "ecs.amazonaws.com",
+            "elasticloadbalancing.amazonaws.com",
+          ]
+        }
+      }
     },
     {
       Sid    = "CreateTaggedApplicationResources"
