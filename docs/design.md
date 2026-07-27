@@ -435,7 +435,7 @@ durability, scaling, authorization, quotas, or successful resource creation.
 ## 11. Known MVP limitations (accepted, explicit)
 
 1. Floci is a development emulator, not proof of real AWS durability, scaling, IAM, or service
-   limits. Production validation still runs against AWS.
+   limits. Any future production deployment requires AWS validation.
 2. Webhook auth is a shared secret, not signatures - prod item
 3. Single region/market (SG), single user, English-first prompts
 4. Constrained schemas and fallback correction reduce invalid proposals but cannot guarantee
