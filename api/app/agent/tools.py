@@ -2,6 +2,7 @@ import secrets
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import uuid4
 
 from app.geocode.base import Geocoder
@@ -17,8 +18,6 @@ from app.providers.uber import ProviderError
 from app.storage import ActionLogRepo, PendingActionRepo, SessionRepo, TripRepo
 from app.ws.publisher import WsPublisher
 
-from .tool_contracts import ARG_MODELS, TOOL_SCHEMAS
-
 
 @dataclass
 class ToolContext:
@@ -30,6 +29,7 @@ class ToolContext:
     geocoder: Geocoder
     publisher: WsPublisher
     correlation_id: str
+    actor: Literal["llm", "user"]
 
 
 async def _log(
@@ -58,7 +58,9 @@ async def _log(
 async def _requested(
     ctx: ToolContext, session: Session, correlation_id: str, tool: str, args: dict
 ) -> None:
-    await _log(ctx, session.session_id, correlation_id, "requested", "llm", tool, args)
+    await _log(
+        ctx, session.session_id, correlation_id, "requested", ctx.actor, tool, args
+    )
 
 
 async def _rejected(
@@ -160,16 +162,24 @@ async def handle_get_quotes(session: Session, args: dict, ctx: ToolContext) -> d
 
 
 async def handle_book_ride(session: Session, args: dict, ctx: ToolContext) -> dict:
-    correlation_id = f"act_{uuid4().hex[:12]}"
+    correlation_id = ctx.correlation_id
     await _requested(ctx, session, correlation_id, "book_ride", args)
     quote = session.quotes.get(args["fare_id"])
     if quote is None:
         return await _rejected(
-            ctx, session, correlation_id, "book_ride", "unknown fare_id; get quotes first"
+            ctx,
+            session,
+            correlation_id,
+            "book_ride",
+            "That ride option is no longer current. Select an option from the latest quote cards.",
         )
     if quote.expires_at <= datetime.now(timezone.utc):
         return await _rejected(
-            ctx, session, correlation_id, "book_ride", "quote expired; get fresh quotes"
+            ctx,
+            session,
+            correlation_id,
+            "book_ride",
+            "That quote expired. Search for fresh ride options and select again.",
         )
     action = PendingAction(
         token=secrets.token_urlsafe(32),
@@ -276,16 +286,24 @@ async def handle_list_session_trips(session: Session, args: dict, ctx: ToolConte
 
 
 async def handle_cancel_ride(session: Session, args: dict, ctx: ToolContext) -> dict:
-    correlation_id = f"act_{uuid4().hex[:12]}"
+    correlation_id = ctx.correlation_id
     await _requested(ctx, session, correlation_id, "cancel_ride", args)
     trip = await ctx.trip_repo.get(args["trip_id"])
     if trip is None or trip.session_id != session.session_id:
         return await _rejected(
-            ctx, session, correlation_id, "cancel_ride", "trip not found in this session"
+            ctx,
+            session,
+            correlation_id,
+            "cancel_ride",
+            "That trip was not found in this session. Refresh your trip list and select again.",
         )
     if trip.status not in CANCELLABLE_STATUSES:
         return await _rejected(
-            ctx, session, correlation_id, "cancel_ride", "trip is not cancellable"
+            ctx,
+            session,
+            correlation_id,
+            "cancel_ride",
+            "That trip is not cancellable.",
         )
     action = PendingAction(
         token=secrets.token_urlsafe(32),
@@ -312,19 +330,25 @@ async def handle_cancel_ride(session: Session, args: dict, ctx: ToolContext) -> 
             "type": "confirmation_request",
             "token": action.token,
             "action": "cancel",
-            "summary": _summary(trip.quote, trip.trip_id),
+            "summary": _summary(
+                trip.quote,
+                trip.trip_id,
+                datetime.fromtimestamp(action.expires_at, timezone.utc),
+            ),
         },
     )
     return {"status": "pending_user_confirmation"}
 
 
-def _summary(quote, trip_id: str | None) -> dict:
+def _summary(
+    quote, trip_id: str | None, expires_at: datetime | None = None
+) -> dict:
     return {
         "product_name": quote.product_name,
         "price_display": quote.price_display,
         "pickup_label": quote.pickup_label,
         "dropoff_label": quote.dropoff_label,
-        "expires_at": quote.expires_at.isoformat(),
+        "expires_at": (expires_at or quote.expires_at).isoformat(),
         "trip_id": trip_id,
     }
 
@@ -354,8 +378,6 @@ async def _read_error(
 HANDLERS = {
     "search_places": handle_search_places,
     "get_quotes": handle_get_quotes,
-    "book_ride": handle_book_ride,
     "get_trip_status": handle_get_trip_status,
     "list_session_trips": handle_list_session_trips,
-    "cancel_ride": handle_cancel_ride,
 }

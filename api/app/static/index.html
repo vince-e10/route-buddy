@@ -49,12 +49,16 @@
       const input = document.getElementById("message-input");
       const confirmations = new Map();
       const trips = new Map();
+      const quoteChoices = [];
+      const tripChoices = new Map();
+      const confirmationLocks = new Set();
       const sessionKey = "route-buddy-session-id";
       const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       const confirmationResults = new Set(["executed", "dismissed", "expired", "failed"]);
       let sessionId = localStorage.getItem(sessionKey);
       let socket;
       let reconnectDelay = 1000;
+      let selectionPending = null;
 
       if (!UUID_V4.test(sessionId || "")) {
         sessionId = crypto.randomUUID();
@@ -90,12 +94,32 @@
       }
 
       function renderQuotes(message) {
+        for (const choice of quoteChoices) {
+          choice.current = false;
+          choice.button.disabled = true;
+        }
         for (const quote of message.items || []) {
           const card = element("article", undefined, "card");
+          const select = element("button", "Select");
+          const actions = element("div", undefined, "actions");
           card.append(element("strong", quote.product_name ?? ""));
           addDetail(card, "Price", quote.price_display);
           addDetail(card, "Pickup", `${quote.pickup_eta_minutes ?? ""} min`);
           addDetail(card, "Ride", `${quote.duration_minutes ?? ""} min`);
+          select.setAttribute("aria-label", `Select ${quote.product_name ?? "ride"} for ${quote.price_display ?? ""}`);
+          select.addEventListener("click", () => requestAction("book", quote.fare_id));
+          actions.append(select);
+          card.append(actions);
+          const choice = {
+            button: select,
+            fareId: quote.fare_id,
+            productName: quote.product_name,
+            priceDisplay: quote.price_display,
+            expiresAt: Date.parse(quote.expires_at || ""),
+            current: true,
+          };
+          quoteChoices.push(choice);
+          select.disabled = selectionLocked() || !Number.isFinite(choice.expiresAt) || choice.expiresAt <= Date.now();
           append(card);
         }
       }
@@ -111,20 +135,27 @@
 
       function resolveConfirmation(token, result, authoritative = false) {
         const confirmation = confirmations.get(token);
-        if (!confirmation) return;
-        if (confirmation.websocketResolved && !authoritative) return;
-        if (authoritative) confirmation.websocketResolved = true;
-        clearInterval(confirmation.timer);
-        confirmation.confirm.disabled = true;
-        confirmation.dismiss.disabled = true;
-        confirmation.state.textContent = confirmationLabel(confirmation.action, result);
-        confirmation.card.classList.add("resolved");
+        if (confirmation) {
+          if (confirmation.websocketResolved && !authoritative) return;
+          if (authoritative) confirmation.websocketResolved = true;
+          clearInterval(confirmation.timer);
+          confirmation.confirm.disabled = true;
+          confirmation.dismiss.disabled = true;
+          confirmation.state.textContent = confirmationLabel(confirmation.action, result);
+          confirmation.card.classList.add("resolved");
+        }
+        clearConfirmationLock(token);
       }
 
       function renderConfirmationRequest(message) {
+        const action = message.action === "cancel" ? "cancel" : "book";
+        confirmationLocks.add(message.token);
+        if (confirmationMatchesSelection(action, message.summary || {})) {
+          selectionPending.token = message.token;
+        }
+        setSelectionButtonsDisabled(true);
         const summary = message.summary || {};
         const card = element("article", undefined, "card confirmation");
-        const action = message.action === "cancel" ? "cancel" : "book";
         const state = element("strong", action === "cancel" ? "Confirm cancellation" : "Confirm booking");
         const confirm = element("button", "Confirm");
         const dismiss = element("button", "Dismiss", "secondary");
@@ -216,10 +247,65 @@
         addDetail(card, "Product", message.product_name);
         addDetail(card, "Price", message.price_display);
         if (message.driver) addDetail(card, "Driver", `${message.driver.name} (${message.driver.rating})`);
+        const cancellable = ["processing", "accepted", "arriving"].includes(message.status);
+        if (cancellable) {
+          const select = element("button", "Select cancellation");
+          const actions = element("div", undefined, "actions");
+          select.setAttribute("aria-label", "Select trip cancellation");
+          select.addEventListener("click", () => requestAction("cancel", message.trip_id));
+          select.disabled = selectionLocked();
+          actions.append(select);
+          card.append(actions);
+          tripChoices.set(message.trip_id, { button: select, cancellable: true });
+        } else {
+          tripChoices.delete(message.trip_id);
+        }
       }
 
       function renderError(message) {
         append(element("div", message.message ?? "", "toast"));
+        if (selectionPending && !selectionPending.token) clearSelectionPending();
+      }
+
+      function selectionLocked() {
+        return Boolean(selectionPending) || confirmationLocks.size > 0;
+      }
+
+      function confirmationMatchesSelection(action, summary) {
+        if (!selectionPending || selectionPending.token || selectionPending.action !== action) return false;
+        if (action === "cancel") return summary.trip_id === selectionPending.targetId;
+        const choice = quoteChoices.find((item) => item.fareId === selectionPending.targetId);
+        return Boolean(choice)
+          && choice.productName === summary.product_name
+          && choice.priceDisplay === summary.price_display;
+      }
+
+      function setSelectionButtonsDisabled(disabled) {
+        const now = Date.now();
+        for (const choice of quoteChoices) {
+          choice.button.disabled = disabled || !choice.current || !Number.isFinite(choice.expiresAt) || choice.expiresAt <= now;
+        }
+        for (const choice of tripChoices.values()) {
+          choice.button.disabled = disabled || !choice.cancellable;
+        }
+      }
+
+      function clearSelectionPending() {
+        selectionPending = null;
+        setSelectionButtonsDisabled(selectionLocked());
+      }
+
+      function clearConfirmationLock(token) {
+        confirmationLocks.delete(token);
+        if (selectionPending?.token === token) selectionPending = null;
+        setSelectionButtonsDisabled(selectionLocked());
+      }
+
+      function requestAction(action, targetId) {
+        if (selectionLocked() || !socket || socket.readyState !== WebSocket.OPEN) return;
+        selectionPending = { action, targetId, token: null };
+        setSelectionButtonsDisabled(true);
+        socket.send(JSON.stringify({ type: "action_request", action, target_id: targetId }));
       }
 
       const renderers = {
@@ -250,6 +336,8 @@
         });
         socket.addEventListener("close", () => {
           setConnected(false);
+          if (selectionPending && !selectionPending.token) selectionPending = null;
+          setSelectionButtonsDisabled(selectionLocked());
           window.setTimeout(connect, reconnectDelay);
           reconnectDelay = Math.min(reconnectDelay * 2, 8000);
         });

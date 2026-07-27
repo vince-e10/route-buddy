@@ -238,6 +238,10 @@ class WsPublisher(Protocol):
 class AgentService(Protocol):
     async def handle_user_message(self, session_id: str, text: str) -> None:
         """Runs the agent loop; pushes all output via WsPublisher. Never raises to caller."""
+    async def propose_action(self, session_id: str,
+                             action: Literal["book", "cancel"],
+                             target_id: str) -> None:
+        """Validates one exact user selection and pushes confirmation or error."""
 
 # api/app/registry.py (RB-101; the wiring seam that lets RB-105 and RB-106 build in parallel)
 def set_publisher(p: WsPublisher) -> None: ...
@@ -280,13 +284,12 @@ class PendingActionRepo:
 
 ## 6. LLM tools (OpenAI function schemas, exact)
 
-Read tools execute immediately. Write tools (`book_ride`, `cancel_ride`) NEVER execute from an LLM
-call; they create a pending action + confirmation card (see design.md 6.2).
+The model receives exactly four read-only tools. Booking and cancellation are server-owned
+operations reached only through a validated structured-card selection (see design.md 6.2).
 
 The server generates these JSON Schema Draft 7-compatible parameter objects from the Pydantic
 argument models. Every object rejects extra properties. Before each model request, current
-session state filters unavailable tools and adds enums containing only legal place, unexpired
-fare, owned trip, and cancellable trip IDs.
+session state adds enums containing only known place and owned trip IDs when available.
 
 ```json
 [
@@ -299,33 +302,22 @@ fare, owned trip, and cancellable trip IDs.
    "parameters":{"type":"object","properties":{
      "pickup_place_id":{"type":"string"},"dropoff_place_id":{"type":"string"}},
      "required":["pickup_place_id","dropoff_place_id"],"additionalProperties":false}}},
- {"type":"function","function":{"name":"book_ride",
-   "description":"Propose booking a quoted ride. Requires the user to confirm in the UI before anything is booked.",
-   "parameters":{"type":"object","properties":{"fare_id":{"type":"string"}},"required":["fare_id"],
-     "additionalProperties":false}}},
  {"type":"function","function":{"name":"get_trip_status",
    "description":"Get current status of a trip in this session.",
    "parameters":{"type":"object","properties":{"trip_id":{"type":"string"}},"required":["trip_id"],
      "additionalProperties":false}}},
  {"type":"function","function":{"name":"list_session_trips",
    "description":"List this session's trips with ids and statuses.",
-   "parameters":{"type":"object","properties":{},"required":[],"additionalProperties":false}}},
- {"type":"function","function":{"name":"cancel_ride",
-   "description":"Propose cancelling a trip. Requires the user to confirm in the UI before anything is cancelled.",
-   "parameters":{"type":"object","properties":{"trip_id":{"type":"string"}},"required":["trip_id"],
-     "additionalProperties":false}}}
+   "parameters":{"type":"object","properties":{},"required":[],"additionalProperties":false}}}
 ]
 ```
 
 Grounding rules enforced in code (not prompts):
-- `search_places` and `list_session_trips` are always available
-- `get_quotes` is available with at least one known place; both ID fields enumerate current
-  `session.places`
-- `book_ride` is available only with an unexpired quote; `fare_id` enumerates those quotes
-- `get_trip_status` enumerates session-owned trips and is absent when there are none
-- `cancel_ride` enumerates session-owned trips in `CANCELLABLE_STATUSES` and is absent when there
-  are none
-- Handlers repeat membership, ownership, expiry, and status checks after schema generation
+- All four read tools are present on every model request.
+- `get_quotes` place fields enumerate current `session.places` when known.
+- `get_trip_status` enumerates session-owned trips when known.
+- Read handlers repeat membership and ownership checks after schema generation.
+- A legacy model `book_ride` or `cancel_ride` call is `unknown_tool` and creates no pending action.
 - `parallel_tool_calls` is `false`; any multiple-call response is rejected as one proposal
 - Structural rejection allows one correction pinned to the fallback model; its output is not
   trusted more and cannot trigger a second correction
@@ -339,9 +331,8 @@ The provider object is exactly `{"data_collection": "deny"}`. Do not add
 supported-parameter listings: the strict combination returned HTTP 404 for both routes. The
 application still sends `parallel_tool_calls: false` and rejects multiple returned calls.
 
-Model tool calls are untrusted proposals. Route Buddy validates every proposal; invalid proposals
-are rejected and logged. Booking or cancellation is possible only after the user confirms the
-exact server-frozen action.
+Model tool calls are untrusted read proposals. Route Buddy validates every proposal; invalid
+proposals are rejected and logged.
 
 ## 7. api HTTP/WS surface
 
@@ -353,9 +344,9 @@ exact server-frozen action.
 | `/confirm` | POST | - | Body `{"token": str, "decision": "confirm"|"dismiss"}` -> `200 {"result": "executed"|"dismissed"|"expired"|"failed", "trip_id": str|null}` |
 | `/webhooks/uber` | POST | Header `X-Webhook-Secret` (verified with `hmac.compare_digest`) | Body = webhook payload (section 9). Always `204` on authenticated requests (even unknown trip - logged, not actioned); `401` on bad/missing secret |
 
-Rate limits (in-memory token bucket; single-instance MVP): user messages 20/min per session_id;
-`/confirm` 10/min bucketed by token string (pre-claim the session is unknown). Exceeding -> WS
-`error` message / HTTP 429.
+Rate limits (in-memory token bucket; single-instance MVP): `user_msg` and `action_request`
+share 20/min per `session_id`; `/confirm` allows 10/min bucketed by token string (pre-claim the
+session is unknown). Exceeding -> WS `error` message / HTTP 429.
 
 ## 8. WebSocket message protocol (exact JSON shapes)
 
@@ -363,6 +354,7 @@ Client -> server:
 
 ```json
 {"type": "user_msg", "text": "Take me to Changi Airport"}
+{"type": "action_request", "action": "book"|"cancel", "target_id": "<exact card ID>"}
 ```
 
 Server -> client:
@@ -381,7 +373,10 @@ Server -> client:
 ```
 
 UI renders `quotes`, `confirmation_request`, `trip_update` as structured cards; prices/ETAs/states
-never come from `assistant_msg` prose.
+never come from `assistant_msg` prose. One client selection locks competing choices before send.
+Only current unexpired quotes recover after rejection. A delivered confirmation stays locked
+across disconnect. The frozen message has no replay ID, so the server does not claim replay
+deduplication.
 
 ## 9. mock-uber contract (Guest Rides mirror)
 
@@ -467,7 +462,7 @@ reconciles via GET). api dedupes on `event_id` (TripRepo.apply_status_event).
 | Flow | Entries (phase / actor) |
 |---|---|
 | Read tool call | `requested`/llm -> `outcome`/llm (result summary or error) |
-| Write tool call (gate) | `requested`/llm -> `verified`/system (ok: token created, or rejected: reason) |
+| User card selection (gate) | `requested`/user -> `verified`/system (ok: token created, or rejected: reason) |
 | Invalid model proposal | `requested`/llm (raw arguments capped at 512 characters) -> `verified`/system (`malformed_arguments`, `unknown_tool`, `invalid_arguments`, or `multiple_tool_calls`) |
 | Confirm (user) | `verified`/user (claim ok, expired, or already-used) -> `executed`/system (provider call sent) -> `outcome`/system (provider response or error) |
 | Dismiss (user) | `outcome`/user `{"result": "aborted_by_user"}` |

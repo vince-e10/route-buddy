@@ -254,17 +254,13 @@ Tool inventory (the complete set; nothing else is exposed to the model):
 |---|---|---|---|
 | `search_places(query)` | read | Geocode SG landmarks/postal codes; returns candidate places for the user to disambiguate | OneMap search (3.4) |
 | `get_quotes(pickup, dropoff)` | read | Products + fares + ETAs, each with `fare_id` and expiry | Provider estimates |
-| `book_ride(fare_id)` | **write, gated** | Never executes; creates pending confirmation | - |
 | `get_trip_status(trip_id)` | read | Current trip state, driver, fare | Provider GET trip |
 | `list_session_trips()` | read | This session's trips with ids and states | trips table |
-| `cancel_ride(trip_id)` | **write, gated** | Never executes; creates pending confirmation | - |
 
 - Tool args validated with Pydantic; unknown tool or invalid args -> refusal returned to the model and logged (`verified: rejected`)
-- "Cancel that one" resolution: the session's trip list (explicit ids) is injected into context; the model must pass a concrete `trip_id`; ids are validated against the session before any gate record is created
 - Tool schemas are generated from the Pydantic argument models with
-  `additionalProperties: false`. Before each request, one trip snapshot determines which tools
-  are legal and constrains place, fare, and trip IDs to current values. Handlers repeat the
-  ownership, expiry, and status checks before creating a pending action.
+  `additionalProperties: false`. Every request contains exactly these four read tools. Current
+  place and trip IDs constrain read calls when available.
 - OpenRouter calls set `parallel_tool_calls: false`; Route Buddy rejects any multiple-call
   response. A malformed, unknown, schema-invalid, or multiple-call primary proposal gets at most
   one correction request pinned to the fallback model. The fallback proposal passes through the
@@ -275,9 +271,9 @@ Tool inventory (the complete set; nothing else is exposed to the model):
   and provider privacy options. The `models` array covers request errors only; ordinary valid
   turns remain on the primary model.
 
-Model tool calls are untrusted proposals. Route Buddy validates every proposal; invalid proposals
-are rejected and logged. Booking or cancellation is possible only after the user confirms the
-exact server-frozen action.
+Model tool calls are untrusted read proposals. Route Buddy validates every proposal; invalid
+proposals are rejected and logged. Booking and cancellation begin only from exact structured
+cards.
 
 ### 6.2 Confirmation gate (invariant 1)
 
@@ -285,16 +281,12 @@ exact server-frozen action.
 sequenceDiagram
     participant U as User (browser)
     participant A as api
-    participant L as LLM
     participant P as Provider (mock-uber)
-    U->>A: "book the UberX"
-    A->>L: message + tools
-    L->>A: tool_call book_ride(fare_id)
+    U->>A: action_request(book, exact fare_id)
     A->>A: validate fare in session, not expired
     A->>A: pending_actions.put(token, frozen params, TTL)
-    A->>A: log: requested + verified
+    A->>A: log: requested/user + verified/system
     A->>U: confirmation card (price, route, product) [Confirm][Dismiss]
-    A->>L: "pending user confirmation" (loop ends)
     U->>A: POST /confirm {token}
     A->>A: single-use claim (conditional delete), TTL + constant-time check
     A->>P: POST /v1/guests/trips (frozen params + guest profile, server-side)
@@ -303,10 +295,17 @@ sequenceDiagram
 ```
 
 Rules:
-- A write tool call from the model **cannot** execute a provider action on any code path; execution requires a live, unclaimed token arriving on `/confirm`
+- The model has no write schema or write dispatch path. A legacy write call is rejected as
+  `unknown_tool` and creates no token.
+- A user card selection only proposes a pending action. Execution requires a live, unclaimed
+  token arriving on `/confirm`.
 - Tokens: `secrets.token_urlsafe`, single-use (claimed via DynamoDB conditional write, so a double-click cannot double-book), constant-time compared, parameter-frozen at creation (the exact `fare_id`, route, displayed price; or `trip_id` for cancel)
 - Expiry: booking token dies with the quote's `expires_at`; cancel token TTL 2 minutes; expired confirm -> refusal, logged, fresh quote required
-- Scope: one token = one action; a price or plan change invalidates nothing silently - it simply requires a new proposal and a new token
+- Scope: one token = one action; a price or plan change requires a new exact card selection and
+  a new token.
+- Pending storage failures append `verified/system(rejected)` when the action log remains
+  available. Publisher failure after token creation may leave an inaccessible TTL-bound token;
+  it cannot execute without the undisclosed token.
 - Dismiss -> `outcome: aborted_by_user`, logged
 - No skip-confirmation flag, no auto-confirm timeout, no agent-inferred approval - by policy (AGENTS.md) and by structure (no code path)
 
@@ -316,12 +315,14 @@ Every attempt gets a `correlation_id` and appends phase entries to the `action_l
 
 | Phase | Records |
 |---|---|
-| `requested` | Tool + args as the model proposed them |
+| `requested` | Read tool + model args, or write selection + exact user-selected target |
 | `verified` | Validation/gate outcome (ok, rejected: reason, token created) |
 | `executed` | Provider request actually sent (endpoint, params) |
 | `outcome` | Provider response / error / refusal / aborted confirmation / expired token / duplicate webhook |
 
-Read tools log `requested` + `outcome`; gated tools log all four phases across their two-step lifecycle. Webhook receipts and WS pushes of state changes are also appended. A silent action is a bug.
+Read tools log `requested` + `outcome`; user-selected gated actions log all four phases across
+their two-step lifecycle. Webhook receipts and WS pushes of state changes are also appended. A
+silent action is a bug.
 
 ### 6.4 mock-uber - provider simulation
 

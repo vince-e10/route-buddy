@@ -12,24 +12,40 @@ _Docs:_ all project docs live in this `docs/` folder alongside the code (owner d
 this file (live status).
 
 ## Current State
-_Last updated: 2026-07-26_
+_Last updated: 2026-07-27_
 
 **Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, DynamoDB on an AWS-compatible local emulator, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
-**Status:** MVP implemented. RB-109 now generates exact state-aware schemas, exposes only current
-legal IDs, forces sequential tool calls, pins one structural correction to the fallback model,
-and records bounded invalid-proposal audit pairs. The unchanged post-hardening evaluation
-completed all 204 case-runs with 100% structural validity and 164 semantic passes. Valid wrong
-write proposals recurred in three consecutive runs, activating RB-110 #22.
-**Next step:** Complete RB-109 release verification and PR review. Implement deterministic write
-selection separately in RB-110 #22.
+**Status:** MVP implemented. RB-108 #20 and RB-109 #21 are closed. Their three-run activation
+evidence triggered RB-110 #22. RB-110 implementation now keeps model tools read-only and routes
+exact quote/trip card selections through the existing confirmation gate with user-attributed
+audit entries. Two cold release-gate runs, implementation re-review, and the required CI check
+passed in [RB-110 PR #37](https://github.com/vince-e10/route-buddy/pull/37).
+**Next step:** Owner review and merge of RB-110 PR #37.
 **Open questions:**
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
 - Uber partner approval timeline - business, needed only for real-provider swap
-- Deterministic write-selection UX and implementation - activated for RB-110 #22 by the RB-109
-  case-level evidence
+- None for deterministic write selection.
 
 ## Log
+
+### 2026-07-27 - RB-110 deterministic write selection implemented locally
+- Opened [RB-110 PR #37](https://github.com/vince-e10/route-buddy/pull/37).
+- Required CI passed both cold release-gate runs.
+- Recorded the [RB-108 baseline evidence](https://github.com/vince-e10/route-buddy/issues/20#issuecomment-5082397293)
+  and the unchanged post-hardening evaluation in
+  [RB-109 PR #36](https://github.com/vince-e10/route-buddy/pull/36): valid wrong write proposals
+  recurred across three evaluator runs and activated RB-110.
+- Removed booking and cancellation from production, fake, and live-evaluator model schemas and
+  dispatch. The model now has exactly four read-only tools; legacy write calls are rejected.
+- Added exact quote/trip card selection over the frozen `action_request` WebSocket shape. The
+  server validates current session state, creates a frozen pending action, and records
+  `requested/user` then `verified/system`.
+- Preserved selection, confirmation, and execution as separate steps. Provider writes remain
+  exclusive to `confirm.py`.
+- Implementation re-review found no remaining Critical or Important issues. Two cold
+  `scripts/e2e.sh` runs each passed 212 API/evaluator tests and 21 mock-provider tests; the
+  optional Node browser-state test passed separately on the host.
 
 ### 2026-07-26 - RB-109 unchanged post-hardening evaluation completed
 - The same fixture SHA, configured models, three runs, temperature, and token cap completed all

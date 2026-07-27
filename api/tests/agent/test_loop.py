@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from datetime import datetime
 
 import boto3
 import pytest
@@ -99,7 +100,12 @@ async def test_empty_session_exposes_only_always_available_tools(
 
     await service(repos, provider, publisher, llm).handle_user_message("session-1", "hi")
 
-    assert _tool_names(llm.calls[0]) == {"search_places", "list_session_trips"}
+    assert _tool_names(llm.calls[0]) == {
+        "search_places",
+        "get_quotes",
+        "get_trip_status",
+        "list_session_trips",
+    }
 
 
 @pytest.mark.asyncio
@@ -147,14 +153,17 @@ async def test_each_request_uses_current_place_quote_and_trip_state(
         "get_quotes",
         "get_trip_status",
         "list_session_trips",
-        "cancel_ride",
     }
     assert first["get_quotes"]["pickup_place_id"]["enum"] == ["pickup", "dropoff"]
     assert first["get_quotes"]["dropoff_place_id"]["enum"] == ["pickup", "dropoff"]
     assert first["get_trip_status"]["trip_id"]["enum"] == [trip.trip_id]
-    assert first["cancel_ride"]["trip_id"]["enum"] == [trip.trip_id]
     assert "book_ride" not in first
-    assert second["book_ride"]["fare_id"]["enum"] == ["fare-1"]
+    assert set(second) == {
+        "search_places",
+        "get_quotes",
+        "get_trip_status",
+        "list_session_trips",
+    }
 
 
 @pytest.mark.asyncio
@@ -637,6 +646,218 @@ async def test_raising_publisher_never_breaks_persistence_or_rate_limit(
         await svc.handle_user_message("publisher-failure", "hi")
     assert len(llm.calls) == 20
     assert (await repos[0].get("publisher-failure")).messages
+
+
+@pytest.mark.asyncio
+async def test_user_book_selection_creates_exact_pending_action_and_user_audit(
+    repos, provider, publisher
+):
+    session = make_session("selection-book")
+    session.quotes = {"selected-fare": make_quote(fare_id="selected-fare")}
+    await repos[0].put(session)
+    svc = service(repos, provider, publisher, ScriptedLLM([]))
+
+    await svc.propose_action(session.session_id, "book", "selected-fare")
+
+    request = publisher.messages[-1][1]
+    action = await repos[3].claim(request["token"])
+    assert action.payload["quote"]["fare_id"] == "selected-fare"
+    assert provider.book_calls == []
+    rows = _action_rows(session.session_id)
+    assert [(row["phase"], row["actor"]) for row in rows] == [
+        ("requested", "user"),
+        ("verified", "system"),
+    ]
+    assert len({row["correlation_id"] for row in rows}) == 1
+
+
+@pytest.mark.asyncio
+async def test_user_cancel_selection_freezes_exact_owned_trip(
+    repos, provider, publisher
+):
+    session = make_session("selection-cancel")
+    await repos[0].put(session)
+    trip = make_trip(session.session_id, status="accepted")
+    await repos[1].put(trip)
+
+    await service(repos, provider, publisher, ScriptedLLM([])).propose_action(
+        session.session_id, "cancel", trip.trip_id
+    )
+
+    request = publisher.messages[-1][1]
+    action = await repos[3].claim(request["token"])
+    assert action.payload == {"trip_id": trip.trip_id}
+    assert provider.cancel_calls == []
+    assert [(row["phase"], row["actor"]) for row in _action_rows(session.session_id)] == [
+        ("requested", "user"),
+        ("verified", "system"),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "target_id", "message"),
+    [
+        ("book", "replaced-fare", "latest quote cards"),
+        ("cancel", "uber:missing", "this session"),
+    ],
+)
+async def test_unknown_user_selection_is_session_safe(
+    repos, provider, publisher, action, target_id, message
+):
+    session = make_session(f"unknown-{action}")
+    await repos[0].put(session)
+
+    await service(repos, provider, publisher, ScriptedLLM([])).propose_action(
+        session.session_id, action, target_id
+    )
+
+    assert message in publisher.messages[-1][1]["message"]
+    assert provider.book_calls == []
+    assert provider.cancel_calls == []
+    assert boto3.resource("dynamodb").Table("pending_actions").scan()["Items"] == []
+
+
+@pytest.mark.asyncio
+async def test_expired_quote_and_non_cancellable_trip_create_no_pending_action(
+    repos, provider, publisher
+):
+    session = make_session("stale-selections")
+    session.quotes = {"expired": make_quote(fare_id="expired", expired=True)}
+    await repos[0].put(session)
+    trip = make_trip(session.session_id, status="completed")
+    await repos[1].put(trip)
+    svc = service(repos, provider, publisher, ScriptedLLM([]))
+
+    await svc.propose_action(session.session_id, "book", "expired")
+    await svc.propose_action(session.session_id, "cancel", trip.trip_id)
+
+    assert "expired" in publisher.messages[-2][1]["message"]
+    assert "not cancellable" in publisher.messages[-1][1]["message"]
+    assert boto3.resource("dynamodb").Table("pending_actions").scan()["Items"] == []
+    assert provider.book_calls == []
+    assert provider.cancel_calls == []
+
+
+@pytest.mark.asyncio
+async def test_cross_session_trip_selection_is_rejected(repos, provider, publisher):
+    session = make_session("selection-owner")
+    await repos[0].put(session)
+    trip = make_trip("selection-other")
+    await repos[1].put(trip)
+
+    await service(repos, provider, publisher, ScriptedLLM([])).propose_action(
+        session.session_id, "cancel", trip.trip_id
+    )
+
+    assert "this session" in publisher.messages[-1][1]["message"]
+    assert provider.cancel_calls == []
+
+
+@pytest.mark.asyncio
+async def test_missing_selection_session_is_not_created_and_is_audited(
+    repos, provider, publisher
+):
+    svc = service(repos, provider, publisher, ScriptedLLM([]))
+
+    await svc.propose_action("missing-selection", "book", "fare")
+
+    assert await repos[0].get("missing-selection") is None
+    assert "no longer available" in publisher.messages[-1][1]["message"]
+    assert [(row["phase"], row["actor"]) for row in _action_rows("missing-selection")] == [
+        ("requested", "user"),
+        ("verified", "system"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pending_storage_failure_records_rejected_after_user_request(
+    repos, provider, publisher, monkeypatch
+):
+    session = make_session("selection-storage")
+    session.quotes = {"fare": make_quote(fare_id="fare")}
+    await repos[0].put(session)
+
+    async def fail_put(action):
+        raise RuntimeError("storage down")
+
+    monkeypatch.setattr(repos[3], "put", fail_put)
+    await service(repos, provider, publisher, ScriptedLLM([])).propose_action(
+        session.session_id, "book", "fare"
+    )
+
+    rows = _action_rows(session.session_id)
+    assert [(row["phase"], row["actor"]) for row in rows] == [
+        ("requested", "user"),
+        ("verified", "system"),
+    ]
+    assert rows[-1]["payload"] == {"result": "rejected", "reason": "storage_failure"}
+    assert publisher.messages[-1][1]["type"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_selection_session_storage_failure_is_audited_when_log_is_available(
+    repos, provider, publisher, monkeypatch
+):
+    async def fail_get(session_id):
+        raise RuntimeError("storage down")
+
+    monkeypatch.setattr(repos[0], "get", fail_get)
+    await service(repos, provider, publisher, ScriptedLLM([])).propose_action(
+        "selection-session-storage", "cancel", "uber:trip"
+    )
+
+    rows = _action_rows("selection-session-storage")
+    assert [(row["phase"], row["actor"]) for row in rows] == [
+        ("requested", "user"),
+        ("verified", "system"),
+    ]
+    assert rows[-1]["payload"]["reason"] == "storage_failure"
+    assert provider.cancel_calls == []
+
+
+@pytest.mark.asyncio
+async def test_selection_rate_limit_rejection_is_audited(
+    repos, provider, publisher
+):
+    session = make_session("selection-rate-limit")
+    await repos[0].put(session)
+    svc = service(repos, provider, publisher, ScriptedLLM([]))
+    for _ in range(20):
+        assert svc._limiter.allow(session.session_id)
+
+    await svc.propose_action(session.session_id, "book", "fare")
+
+    rows = _action_rows(session.session_id)
+    assert [(row["phase"], row["actor"]) for row in rows] == [
+        ("requested", "user"),
+        ("verified", "system"),
+    ]
+    assert rows[-1]["payload"]["reason"] == "rate_limited"
+    assert publisher.messages[-1][1]["type"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_publisher_failure_leaves_ttl_bound_token_after_verified_log(
+    repos, provider
+):
+    session = make_session("selection-publisher")
+    session.quotes = {"fare": make_quote(fare_id="fare")}
+    await repos[0].put(session)
+
+    await service(repos, provider, RaisingPublisher(), ScriptedLLM([])).propose_action(
+        session.session_id, "book", "fare"
+    )
+
+    pending = boto3.resource("dynamodb").Table("pending_actions").scan()["Items"]
+    assert len(pending) == 1
+    assert int(pending[0]["expires_at"]) > int(datetime.now().timestamp())
+    rows = _action_rows(session.session_id)
+    assert [(row["phase"], row["actor"]) for row in rows] == [
+        ("requested", "user"),
+        ("verified", "system"),
+    ]
+    assert rows[-1]["payload"]["result"] == "token_created"
 
 
 def _schemas_by_name(call):

@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -17,7 +18,12 @@ from .publishing import publisher
 from .rate_limit import RateLimiter
 from .session_locks import session_lock
 from .tool_contracts import ARG_MODELS, session_tool_schemas
-from .tools import HANDLERS, ToolContext
+from .tools import (
+    HANDLERS,
+    ToolContext,
+    handle_book_ride,
+    handle_cancel_ride,
+)
 
 
 class AgentServiceImpl:
@@ -65,6 +71,100 @@ class AgentServiceImpl:
         async with session_lock(session_id):
             await self._handle_locked(session_id, text)
 
+    async def propose_action(
+        self,
+        session_id: str,
+        action: Literal["book", "cancel"],
+        target_id: str,
+    ) -> None:
+        correlation_id = f"act_{uuid4().hex[:12]}"
+        tool = "book_ride" if action == "book" else "cancel_ride"
+        args = {"fare_id" if action == "book" else "trip_id": target_id}
+        if not self._limiter.allow(session_id):
+            await self._reject_selection(
+                session_id, correlation_id, tool, args, "rate_limited"
+            )
+            await publisher.publish(
+                session_id,
+                {
+                    "type": "error",
+                    "message": "You're selecting actions too quickly, give me a moment.",
+                },
+            )
+            return
+        async with session_lock(session_id):
+            try:
+                session = await self._session_repo.get(session_id)
+            except Exception:
+                await self._reject_selection(
+                    session_id, correlation_id, tool, args, "storage_failure"
+                )
+                await publisher.publish(
+                    session_id,
+                    {
+                        "type": "error",
+                        "message": "Your selection could not be checked. Please try again.",
+                    },
+                )
+                return
+            if session is None:
+                await self._reject_selection(
+                    session_id, correlation_id, tool, args, "missing_session"
+                )
+                await publisher.publish(
+                    session_id,
+                    {
+                        "type": "error",
+                        "message": (
+                            "Your ride options are no longer available. Search again."
+                            if action == "book"
+                            else "Your trip list is no longer available. Check your trips again."
+                        ),
+                    },
+                )
+                return
+            ctx = ToolContext(
+                session_repo=self._session_repo,
+                trip_repo=self._trip_repo,
+                action_log_repo=self._action_log_repo,
+                pending_repo=self._pending_repo,
+                provider=self._provider,
+                geocoder=self._geocoder,
+                publisher=publisher,
+                correlation_id=correlation_id,
+                actor="user",
+            )
+            try:
+                result = await (
+                    handle_book_ride(session, args, ctx)
+                    if action == "book"
+                    else handle_cancel_ride(session, args, ctx)
+                )
+            except Exception:
+                try:
+                    await self._append_audit(
+                        session_id,
+                        correlation_id,
+                        "verified",
+                        "system",
+                        tool,
+                        {"result": "rejected", "reason": "storage_failure"},
+                    )
+                except Exception:
+                    pass
+                await publisher.publish(
+                    session_id,
+                    {
+                        "type": "error",
+                        "message": "Your selection could not be saved. Please try again.",
+                    },
+                )
+                return
+            if "error" in result:
+                await publisher.publish(
+                    session_id, {"type": "error", "message": result["error"]}
+                )
+
     async def _handle_locked(self, session_id: str, text: str) -> None:
         now = datetime.now(timezone.utc)
         try:
@@ -95,6 +195,7 @@ class AgentServiceImpl:
             geocoder=self._geocoder,
             publisher=publisher,
             correlation_id=correlation_id,
+            actor="llm",
         )
         correction_pending = False
         correction_used = False
@@ -287,3 +388,48 @@ class AgentServiceImpl:
                 ts=datetime.now(timezone.utc),
             )
         )
+
+    async def _append_audit(
+        self,
+        session_id,
+        correlation_id,
+        phase,
+        actor,
+        tool,
+        payload,
+    ) -> None:
+        await self._action_log_repo.append(
+            ActionLogEntry(
+                session_id=session_id,
+                entry_key="",
+                correlation_id=correlation_id,
+                phase=phase,
+                actor=actor,
+                tool=tool,
+                payload=payload,
+                ts=datetime.now(timezone.utc),
+            )
+        )
+
+    async def _reject_selection(
+        self, session_id, correlation_id, tool, args, reason
+    ) -> None:
+        try:
+            await self._append_audit(
+                session_id,
+                correlation_id,
+                "requested",
+                "user",
+                tool,
+                args,
+            )
+            await self._append_audit(
+                session_id,
+                correlation_id,
+                "verified",
+                "system",
+                tool,
+                {"result": "rejected", "reason": reason},
+            )
+        except Exception:
+            pass

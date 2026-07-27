@@ -27,6 +27,17 @@ class Chat:
     def send(self, text: str) -> None:
         self.socket.send(json.dumps({"type": "user_msg", "text": text}))
 
+    def select(self, action: str, target_id: str) -> None:
+        self.socket.send(
+            json.dumps(
+                {
+                    "type": "action_request",
+                    "action": action,
+                    "target_id": target_id,
+                }
+            )
+        )
+
     def next(self, predicate) -> dict:
         deadline = time.monotonic() + WAIT_SECONDS
         while True:
@@ -93,16 +104,31 @@ def _assert_trip_count_stays(session_id: str, expected: int) -> None:
         time.sleep(0.1)
 
 
+def _trip_item(trip_id: str) -> dict:
+    return _ddb_table("trips").get_item(Key={"trip_id": trip_id})["Item"]
+
+
 def _quote_and_request_book(chat: Chat) -> dict:
     chat.send("Take me from Changi Airport to Marina Bay Sands")
     quotes = chat.next(lambda item: item.get("type") == "quotes")
     assert len(quotes["items"]) == 3
     assert {item["currency"] for item in quotes["items"]} == {"SGD"}
     chat.send("book UberX")
+    guidance = chat.next(
+        lambda item: item.get("type") == "assistant_msg"
+        and "Select" in item.get("text", "")
+    )
+    assert "exact ride option card" in guidance["text"]
+    assert _ddb_table("pending_actions").scan()["Items"] == []
+    selected = max(quotes["items"], key=lambda item: item["price_value"])
+    assert selected["price_value"] > min(
+        item["price_value"] for item in quotes["items"]
+    )
+    chat.select("book", selected["fare_id"])
     request = chat.next(
         lambda item: item.get("type") == "confirmation_request" and item.get("action") == "book"
     )
-    assert request["summary"]["product_name"] == "UberX"
+    assert request["summary"]["product_name"] == selected["product_name"]
     return request
 
 
@@ -162,7 +188,7 @@ def test_cancel_after_accepted_produces_rider_canceled(chat):
         and item.get("status") == "accepted"
     )
     assert accepted["driver"]
-    chat.send("cancel that one")
+    chat.select("cancel", trip_id)
     request = chat.next(
         lambda item: item.get("type") == "confirmation_request" and item.get("action") == "cancel"
     )
@@ -174,6 +200,60 @@ def test_cancel_after_accepted_produces_rider_canceled(chat):
         and item.get("status") == "rider_canceled"
     )
     assert canceled["driver"]
+
+
+def test_two_trip_selection_cancels_only_the_exact_trip(chat):
+    first_trip_id = _book(chat)
+    second_trip_id = _book(chat)
+    assert first_trip_id != second_trip_id
+
+    chat.select("cancel", second_trip_id)
+    request = chat.next(
+        lambda item: item.get("type") == "confirmation_request"
+        and item.get("action") == "cancel"
+    )
+    assert request["summary"]["trip_id"] == second_trip_id
+    result = _confirm(request["token"])
+    assert result == {"result": "executed", "trip_id": second_trip_id}
+    chat.next(
+        lambda item: item.get("type") == "trip_update"
+        and item.get("trip_id") == second_trip_id
+        and item.get("status") == "rider_canceled"
+    )
+
+    assert _trip_item(second_trip_id)["status"] == "rider_canceled"
+    assert _trip_item(first_trip_id)["status"] != "rider_canceled"
+
+
+def test_dismissing_cancellation_does_not_cancel_the_trip(chat):
+    trip_id = _book(chat)
+    chat.select("cancel", trip_id)
+    request = chat.next(
+        lambda item: item.get("type") == "confirmation_request"
+        and item.get("action") == "cancel"
+    )
+
+    assert _confirm(request["token"], "dismiss") == {
+        "result": "dismissed",
+        "trip_id": None,
+    }
+    chat.next(
+        lambda item: item.get("type") == "confirmation_resolved"
+        and item.get("token") == request["token"]
+        and item.get("result") == "dismissed"
+    )
+    assert _trip_item(trip_id)["status"] != "rider_canceled"
+
+    rows = _wait_for_rows(_ddb_table("action_log"), chat.session_id, minimum=8)
+    cancellation = [
+        row for row in rows if row.get("tool") in {"cancel_ride", "cancel"}
+    ]
+    assert not any(row["phase"] == "executed" for row in cancellation)
+    assert any(
+        row["phase"] == "outcome"
+        and row["payload"].get("result") == "aborted_by_user"
+        for row in cancellation
+    )
 
 
 def test_no_drivers_scenario_has_no_driver(chat):
@@ -240,7 +320,7 @@ def test_action_log_has_search_book_and_applied_webhook_phases(chat):
         (item["phase"], item["actor"], item["tool"])
         for item in book_rows
     ] == [
-        ("requested", "llm", "book_ride"),
+        ("requested", "user", "book_ride"),
         ("verified", "system", "book_ride"),
         ("verified", "user", "book"),
         ("executed", "system", "book_ride"),
@@ -257,6 +337,32 @@ def test_action_log_has_search_book_and_applied_webhook_phases(chat):
         if item["actor"] == "webhook" and item["payload"].get("applied") is True
     ]
     assert webhook_statuses == ["accepted", "arriving", "in_progress", "completed"]
+
+
+def test_stale_quote_and_completed_trip_selections_create_no_pending_action(chat):
+    chat.send("Take me from Changi Airport to Marina Bay Sands")
+    first = chat.next(lambda item: item.get("type") == "quotes")
+    stale_fare = first["items"][0]["fare_id"]
+    chat.send("Take me from Changi Airport to Marina Bay Sands")
+    chat.next(lambda item: item.get("type") == "quotes")
+
+    chat.select("book", stale_fare)
+    assert "latest quote cards" in chat.next(
+        lambda item: item.get("type") == "error"
+    )["message"]
+    assert _ddb_table("pending_actions").scan()["Items"] == []
+
+    trip_id = _book(chat)
+    chat.next(
+        lambda item: item.get("type") == "trip_update"
+        and item.get("trip_id") == trip_id
+        and item.get("status") == "completed"
+    )
+    chat.select("cancel", trip_id)
+    assert "not cancellable" in chat.next(
+        lambda item: item.get("type") == "error"
+    )["message"]
+    assert _ddb_table("pending_actions").scan()["Items"] == []
 
 
 def test_phone_is_absent_from_session_and_websocket_messages(chat):

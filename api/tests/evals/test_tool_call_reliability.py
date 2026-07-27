@@ -42,12 +42,6 @@ def test_generated_tool_schemas_are_exact_and_forbid_extra_properties():
             "required": ["pickup_place_id", "dropoff_place_id"],
             "additionalProperties": False,
         },
-        "book_ride": {
-            "type": "object",
-            "properties": {"fare_id": {"type": "string"}},
-            "required": ["fare_id"],
-            "additionalProperties": False,
-        },
         "get_trip_status": {
             "type": "object",
             "properties": {"trip_id": {"type": "string"}},
@@ -58,12 +52,6 @@ def test_generated_tool_schemas_are_exact_and_forbid_extra_properties():
             "type": "object",
             "properties": {},
             "required": [],
-            "additionalProperties": False,
-        },
-        "cancel_ride": {
-            "type": "object",
-            "properties": {"trip_id": {"type": "string"}},
-            "required": ["trip_id"],
             "additionalProperties": False,
         },
     }
@@ -79,41 +67,56 @@ def call(name: str, arguments: str) -> LLMResponse:
 def case(**changes) -> GoldenCase:
     values = {
         "id": "case",
-        "category": "write_booking",
-        "user_message": "Book the first option",
+        "category": "quote",
+        "user_message": "Quote the exact route",
         "preceding_messages": [],
         "tools": [
             "search_places",
             "get_quotes",
-            "book_ride",
             "get_trip_status",
             "list_session_trips",
-            "cancel_ride",
         ],
         "expected": "tool",
-        "expected_tool": "book_ride",
-        "allowed_tools": ["book_ride"],
-        "expected_arguments": {"fare_id": "fare_1"},
-        "allowed_values": {"fare_id": ["fare_1", "fare_2"]},
-        "forbidden_tools": ["cancel_ride"],
+        "expected_tool": "get_quotes",
+        "allowed_tools": ["get_quotes"],
+        "expected_arguments": {
+            "pickup_place_id": "pickup",
+            "dropoff_place_id": "dropoff",
+        },
+        "allowed_values": {
+            "pickup_place_id": ["pickup", "other"],
+            "dropoff_place_id": ["dropoff"],
+        },
+        "forbidden_tools": [
+            "search_places",
+            "get_trip_status",
+            "list_session_trips",
+        ],
         "ambiguity": False,
-        "write_proposal": True,
-        "rationale": "The quoted fare ID must be reused exactly.",
+        "write_proposal": False,
+        "rationale": "The exact place IDs must be reused.",
         "recovery": False,
     }
     values.update(changes)
     return GoldenCase.model_validate(values)
 
 
-def test_golden_set_covers_required_scenarios_and_write_proposals():
+def test_golden_set_migrates_every_case_to_read_only_tools():
     cases = load_cases(FIXTURE)
 
-    assert len(cases) >= 24
-    assert sum(item.write_proposal for item in cases) >= 8
-    assert {item.expected_tool for item in cases if item.write_proposal} == {
-        "book_ride",
-        "cancel_ride",
-    }
+    assert len(cases) == 34
+    assert not any(item.write_proposal for item in cases)
+    assert all(
+        set(item.tools)
+        == {
+            "search_places",
+            "get_quotes",
+            "get_trip_status",
+            "list_session_trips",
+        }
+        for item in cases
+    )
+    assert all(item.expected_tool not in {"book_ride", "cancel_ride"} for item in cases)
     assert all(item.max_attempts <= 6 for item in cases)
     assert {
         "search-postal-code",
@@ -121,23 +124,82 @@ def test_golden_set_covers_required_scenarios_and_write_proposals():
         "book-ambiguous-it",
         "book-expired-quote",
         "no-session-trips",
+        "cancel-completed-trip",
+    } <= {item.id for item in cases}
+    guidance = {
+        item.id
+        for item in cases
+        if item.rationale.startswith("Typed write intent")
+    }
+    assert guidance == {
+        "book-cheapest",
+        "book-named-product",
+        "book-bypass-confirmation",
+        "book-price-change-new-confirmation",
+        "cancel-only-trip",
+        "cancel-explicit-trip",
+        "cancel-bypass-confirmation",
+        "cancel-latest-active",
+        "ignore-tool-result-instruction",
+        "reject-invented-fare-id",
+        "recover-malformed-book-call",
+        "unknown-target-ask-before-cancel",
+        "book-ambiguous-it",
+        "book-expired-quote",
         "cancel-named-product",
         "cancel-completed-trip",
         "recover-malformed-json",
         "recover-unknown-tool",
         "recover-invalid-arguments",
-    } <= {item.id for item in cases}
+    }
+    assert all(
+        any("select" in phrase and "card" in phrase for phrase in item.required_text_any)
+        and {
+            "has been booked",
+            "has been canceled",
+            "has been cancelled",
+            "confirmation request created",
+        }
+        <= set(item.forbidden_text)
+        for item in cases
+        if item.id in guidance
+    )
+
+
+def test_legacy_write_calls_are_unknown_even_for_legacy_classifier_values():
+    assert classify(case(), call("book_ride", '{"fare_id":"fare_1"}')) == "unknown_tool"
 
 
 @pytest.mark.parametrize(
     ("response", "changes", "outcome"),
     [
-        (call("book_ride", "{"), {}, "invalid_json"),
+        (call("get_quotes", "{"), {}, "invalid_json"),
         (call("invented", "{}"), {}, "unknown_tool"),
-        (call("book_ride", '{"fare_id":1}'), {}, "schema_mismatch"),
-        (call("book_ride", '{"fare_id":"made_up"}'), {}, "illegal_id"),
-        (call("cancel_ride", '{"trip_id":"trip_1"}'), {}, "wrong_tool"),
-        (call("book_ride", '{"fare_id":"fare_2"}'), {}, "wrong_target"),
+        (
+            call(
+                "get_quotes",
+                '{"pickup_place_id":1,"dropoff_place_id":"dropoff"}',
+            ),
+            {},
+            "schema_mismatch",
+        ),
+        (
+            call(
+                "get_quotes",
+                '{"pickup_place_id":"made_up","dropoff_place_id":"dropoff"}',
+            ),
+            {},
+            "illegal_id",
+        ),
+        (call("search_places", '{"query":"pickup"}'), {}, "wrong_tool"),
+        (
+            call(
+                "get_quotes",
+                '{"pickup_place_id":"other","dropoff_place_id":"dropoff"}',
+            ),
+            {},
+            "wrong_target",
+        ),
         (
             call("search_places", '{"query":"Orchard"}'),
             {
@@ -151,7 +213,14 @@ def test_golden_set_covers_required_scenarios_and_write_proposals():
         ),
         (LLMResponse(text="I cannot.", tool_calls=[]), {}, "unnecessary_refusal"),
         (LLMResponse(text=None, tool_calls=[]), {}, "no_response"),
-        (call("book_ride", '{"fare_id":"fare_1"}'), {}, "pass"),
+        (
+            call(
+                "get_quotes",
+                '{"pickup_place_id":"pickup","dropoff_place_id":"dropoff"}',
+            ),
+            {},
+            "pass",
+        ),
     ],
 )
 def test_classification_precedence(response, changes, outcome):
@@ -162,8 +231,8 @@ def test_any_bad_parallel_call_fails_with_primary_precedence():
     response = LLMResponse(
         text=None,
         tool_calls=[
-            ToolCall(id="one", name="cancel_ride", arguments='{"trip_id":"trip_1"}'),
-            ToolCall(id="two", name="book_ride", arguments="{"),
+            ToolCall(id="one", name="search_places", arguments='{"query":"x"}'),
+            ToolCall(id="two", name="get_quotes", arguments="{"),
         ],
     )
 
@@ -207,9 +276,9 @@ def test_text_and_clarification_require_declarative_evidence():
 
 
 def test_case_omitted_tool_is_unknown_even_when_globally_known():
-    response = call("cancel_ride", '{"trip_id":"trip_1"}')
+    response = call("get_trip_status", '{"trip_id":"trip_1"}')
 
-    assert classify(case(tools=["book_ride"]), response) == "unknown_tool"
+    assert classify(case(tools=["get_quotes"]), response) == "unknown_tool"
 
 
 def test_nearest_rank_percentiles_are_deterministic():
@@ -234,23 +303,37 @@ class ScriptedClient:
 
 @pytest.mark.asyncio
 async def test_evaluator_supplies_exact_case_schemas_without_dispatch(monkeypatch, tmp_path):
-    from app.agent import tools as production_tools
-
-    async def fail_if_dispatched(*args, **kwargs):
-        raise AssertionError("tool handler was dispatched")
-
-    monkeypatch.setitem(production_tools.HANDLERS, "book_ride", fail_if_dispatched)
-    client = ScriptedClient([call("book_ride", '{"fare_id":"fare_1"}')])
+    client = ScriptedClient(
+        [
+            call(
+                "get_quotes",
+                '{"pickup_place_id":"pickup","dropoff_place_id":"dropoff"}',
+            )
+        ]
+    )
 
     await run_evaluation(
         client=client,
         cases=[
             case(
-                tools=["book_ride", "cancel_ride"],
-                allowed_values={
-                    "fare_id": ["fare_1", "fare_2"],
-                    "trip_id": ["trip_1"],
+                category="quote",
+                tools=[
+                    "search_places",
+                    "get_quotes",
+                    "get_trip_status",
+                    "list_session_trips",
+                ],
+                expected_tool="get_quotes",
+                allowed_tools=["get_quotes"],
+                expected_arguments={
+                    "pickup_place_id": "pickup",
+                    "dropoff_place_id": "dropoff",
                 },
+                allowed_values={
+                    "pickup_place_id": ["pickup"],
+                    "dropoff_place_id": ["dropoff"],
+                },
+                write_proposal=False,
             )
         ],
         models=["provider/model"],
@@ -258,51 +341,13 @@ async def test_evaluator_supplies_exact_case_schemas_without_dispatch(monkeypatc
         output=tmp_path / "report.json",
     )
 
-    assert client.tools == [
-        [
-            {
-                "type": "function",
-                "function": {
-                    "name": "book_ride",
-                    "description": (
-                        "Propose booking a quoted ride. Requires the user to confirm "
-                        "in the UI before anything is booked."
-                    ),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "fare_id": {
-                                "type": "string",
-                                "enum": ["fare_1", "fare_2"],
-                            }
-                        },
-                        "required": ["fare_id"],
-                        "additionalProperties": False,
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "cancel_ride",
-                    "description": (
-                        "Propose cancelling a trip. Requires the user to confirm "
-                        "in the UI before anything is cancelled."
-                    ),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "trip_id": {
-                                "type": "string",
-                                "enum": ["trip_1"],
-                            }
-                        },
-                        "required": ["trip_id"],
-                        "additionalProperties": False,
-                    },
-                },
-            },
-        ]
+    assert [
+        tool["function"]["name"] for tool in client.tools[0]
+    ] == [
+        "search_places",
+        "get_quotes",
+        "get_trip_status",
+        "list_session_trips",
     ]
 
 
@@ -311,11 +356,17 @@ async def test_recovery_is_bounded_and_never_dispatches(monkeypatch, tmp_path):
     from app.agent import tools as production_tools
 
     async def fail_if_dispatched(*args, **kwargs):
-        raise AssertionError("write handler was dispatched")
+        raise AssertionError("tool handler was dispatched")
 
-    monkeypatch.setitem(production_tools.HANDLERS, "book_ride", fail_if_dispatched)
-    failing = call("book_ride", '{"fare_id":"invented"}')
-    passing = call("book_ride", '{"fare_id":"fare_1"}')
+    monkeypatch.setitem(production_tools.HANDLERS, "get_quotes", fail_if_dispatched)
+    failing = call(
+        "get_quotes",
+        '{"pickup_place_id":"invented","dropoff_place_id":"dropoff"}',
+    )
+    passing = call(
+        "get_quotes",
+        '{"pickup_place_id":"pickup","dropoff_place_id":"dropoff"}',
+    )
     client = ScriptedClient([failing, passing])
     output = tmp_path / "report.json"
     recovery_case = case(recovery=True, max_attempts=2)
@@ -369,7 +420,10 @@ async def test_non_retryable_transport_status_stops_only_that_model(status, tmp_
         client=ScriptedClient(
             [
                 LLMError("safe failure", status_code=status),
-                call("book_ride", '{"fare_id":"fare_1"}'),
+                call(
+                    "get_quotes",
+                    '{"pickup_place_id":"pickup","dropoff_place_id":"dropoff"}',
+                ),
             ]
         ),
         cases=[case()],
@@ -388,7 +442,10 @@ async def test_non_retryable_transport_status_stops_only_that_model(status, tmp_
 
 @pytest.mark.asyncio
 async def test_metrics_are_reported_for_each_numbered_run(tmp_path):
-    passing = call("book_ride", '{"fare_id":"fare_1"}')
+    passing = call(
+        "get_quotes",
+        '{"pickup_place_id":"pickup","dropoff_place_id":"dropoff"}',
+    )
     report = await run_evaluation(
         client=ScriptedClient([passing, passing]),
         cases=[case()],
@@ -404,7 +461,10 @@ async def test_metrics_are_reported_for_each_numbered_run(tmp_path):
 
 @pytest.mark.asyncio
 async def test_usage_costs_include_observed_and_snapshot_estimates(tmp_path):
-    response = call("book_ride", '{"fare_id":"fare_1"}')
+    response = call(
+        "get_quotes",
+        '{"pickup_place_id":"pickup","dropoff_place_id":"dropoff"}',
+    )
     response.usage = LLMUsage(
         prompt_tokens=1_000_000,
         completion_tokens=1_000_000,

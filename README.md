@@ -78,8 +78,8 @@ Open `http://localhost:8000`, or use the bounded startup helper:
 Example conversation:
 
 1. `Take me from Changi Airport to Marina Bay Sands`
-2. `book UberX`, then click Confirm on the exact booking card.
-3. `cancel that one`, then click Confirm on the exact cancellation card.
+2. Select the exact quote card, then click Confirm on the booking card.
+3. Select cancellation on the exact active-trip card, then click Confirm.
 
 ## Tests
 
@@ -110,8 +110,8 @@ docker compose run --rm --no-deps --build -v /tmp:/reports api \
 
 The machine-readable report is written to `/tmp/route-buddy-tool-call-report.json` on the host.
 The `primary` and `fallback` aliases resolve from the configured model variables. This live
-evaluation is intentionally excluded from CI. It uses the production schema builder with each
-case's supplied tool names and allowed ID enums, while retaining the golden-set fixture unchanged.
+evaluation is intentionally excluded from CI. It exposes the same four read-only tools as
+production and retires the old model write-proposal cases.
 
 ## Architecture and invariants
 
@@ -120,14 +120,13 @@ case's supplied tool names and allowed ID enums, while retaining the golden-set 
 - Prices, ETAs, identifiers, and lifecycle state come from tool output, never model invention.
 - The model never receives rider PII. The API adds it only while executing a confirmed booking.
 
-Model tool calls are untrusted proposals. Route Buddy validates every proposal; invalid proposals
-are rejected and logged. Booking or cancellation is possible only after the user confirms the
-exact server-frozen action.
+The model has read-only tools. Booking and cancellation start only from exact structured-card
+selections, then require confirmation of the server-frozen action.
 
-Only state-legal tools and IDs are sent to the model. Calls are sequential, and one structurally
-invalid primary proposal may receive one correction pinned to the fallback model. The fallback is
-subject to the same validation. Invalid argument text in the audit log is capped at 512
-characters.
+Only four read tools and state-legal IDs are sent to the model. Calls are sequential, and one
+structurally invalid primary proposal may receive one correction pinned to the fallback model.
+The fallback is subject to the same validation. Invalid argument text in the audit log is capped
+at 512 characters.
 
 ## Known MVP limitations
 
