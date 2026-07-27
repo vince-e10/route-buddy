@@ -1,7 +1,8 @@
 resource "aws_dynamodb_table" "sessions" {
-  name         = var.table_names.sessions
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "session_id"
+  name                        = var.table_names.sessions
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "session_id"
+  deletion_protection_enabled = var.deletion_protection_enabled
 
   attribute {
     name = "session_id"
@@ -12,12 +13,17 @@ resource "aws_dynamodb_table" "sessions" {
     attribute_name = "expires_at"
     enabled        = true
   }
+
+  point_in_time_recovery {
+    enabled = var.point_in_time_recovery_enabled
+  }
 }
 
 resource "aws_dynamodb_table" "trips" {
-  name         = var.table_names.trips
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "trip_id"
+  name                        = var.table_names.trips
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "trip_id"
+  deletion_protection_enabled = var.deletion_protection_enabled
 
   attribute {
     name = "trip_id"
@@ -34,13 +40,18 @@ resource "aws_dynamodb_table" "trips" {
     hash_key        = "session_id"
     projection_type = "ALL"
   }
+
+  point_in_time_recovery {
+    enabled = var.point_in_time_recovery_enabled
+  }
 }
 
 resource "aws_dynamodb_table" "action_log" {
-  name         = var.table_names.action_log
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "session_id"
-  range_key    = "entry_key"
+  name                        = var.table_names.action_log
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "session_id"
+  range_key                   = "entry_key"
+  deletion_protection_enabled = var.deletion_protection_enabled
 
   attribute {
     name = "session_id"
@@ -51,12 +62,17 @@ resource "aws_dynamodb_table" "action_log" {
     name = "entry_key"
     type = "S"
   }
+
+  point_in_time_recovery {
+    enabled = var.point_in_time_recovery_enabled
+  }
 }
 
 resource "aws_dynamodb_table" "pending_actions" {
-  name         = var.table_names.pending_actions
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "token"
+  name                        = var.table_names.pending_actions
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "token"
+  deletion_protection_enabled = var.deletion_protection_enabled
 
   attribute {
     name = "token"
@@ -66,5 +82,9 @@ resource "aws_dynamodb_table" "pending_actions" {
   ttl {
     attribute_name = "expires_at"
     enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = var.point_in_time_recovery_enabled
   }
 }
