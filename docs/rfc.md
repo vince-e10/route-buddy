@@ -18,8 +18,8 @@ _Last updated: 2026-07-27_
 **Status:** MVP implemented. RB-110 is merged. RB-111 now defines the AWS trust bootstrap,
 recoverable remote state, immutable image repositories, separate bootstrap and demo deployment
 roles, and a protected manual workflow. Local and CI Terraform use exact version 1.15.8.
-**Next step:** Finish RB-111 validation, open its PR, and run the one-time administrator bootstrap
-after merge.
+**Next step:** Review [RB-111 PR #38](https://github.com/vince-e10/route-buddy/pull/38), then run
+the one-time administrator bootstrap after merge.
 **Open questions:**
 - OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
 - Action-log retention policy - production decision
@@ -27,6 +27,10 @@ after merge.
 - Which existing Route53 hosted zone the later AWS demo may update.
 
 ## Log
+
+### 2026-07-27 - RB-111 PR opened
+- Opened [PR #38](https://github.com/vince-e10/route-buddy/pull/38) with the locally verified AWS
+  trust bootstrap and documented post-merge live-AWS acceptance path.
 
 ### 2026-07-27 - RB-111 AWS bootstrap implemented locally
 - Added a single Terraform bootstrap root with private versioned S3 state, native lock files,
