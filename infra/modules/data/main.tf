@@ -17,6 +17,10 @@ resource "aws_dynamodb_table" "sessions" {
   point_in_time_recovery {
     enabled = var.point_in_time_recovery_enabled
   }
+
+  server_side_encryption {
+    enabled = var.server_side_encryption_enabled
+  }
 }
 
 resource "aws_dynamodb_table" "trips" {
@@ -36,13 +40,20 @@ resource "aws_dynamodb_table" "trips" {
   }
 
   global_secondary_index {
-    name            = "by_session"
-    hash_key        = "session_id"
+    name = "by_session"
+    key_schema {
+      attribute_name = "session_id"
+      key_type       = "HASH"
+    }
     projection_type = "ALL"
   }
 
   point_in_time_recovery {
     enabled = var.point_in_time_recovery_enabled
+  }
+
+  server_side_encryption {
+    enabled = var.server_side_encryption_enabled
   }
 }
 
@@ -66,6 +77,10 @@ resource "aws_dynamodb_table" "action_log" {
   point_in_time_recovery {
     enabled = var.point_in_time_recovery_enabled
   }
+
+  server_side_encryption {
+    enabled = var.server_side_encryption_enabled
+  }
 }
 
 resource "aws_dynamodb_table" "pending_actions" {
@@ -86,5 +101,9 @@ resource "aws_dynamodb_table" "pending_actions" {
 
   point_in_time_recovery {
     enabled = var.point_in_time_recovery_enabled
+  }
+
+  server_side_encryption {
+    enabled = var.server_side_encryption_enabled
   }
 }

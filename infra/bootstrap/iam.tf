@@ -315,12 +315,13 @@ locals {
         "ec2:CreateSecurityGroup",
         "ec2:CreateSubnet",
         "ec2:CreateVpc",
+        "ec2:CreateVpcEndpoint",
       ]
       Resource = "*"
       Condition = {
         StringEquals = {
-          "aws:RequestTag/Environment" = "aws-demo"
-          "aws:RequestTag/Project"     = local.project
+          "aws:RequestTag/environment" = "aws-demo"
+          "aws:RequestTag/project"     = local.project
         }
       }
     },
@@ -345,10 +346,12 @@ locals {
         "ec2:DeleteSubnet",
         "ec2:DeleteTags",
         "ec2:DeleteVpc",
+        "ec2:DeleteVpcEndpoints",
         "ec2:DetachInternetGateway",
         "ec2:DisassociateRouteTable",
         "ec2:ModifySecurityGroupRules",
         "ec2:ModifySubnetAttribute",
+        "ec2:ModifyVpcEndpoint",
         "ec2:ModifyVpcAttribute",
         "ec2:ReleaseAddress",
         "ec2:RevokeSecurityGroupEgress",
@@ -357,8 +360,8 @@ locals {
       Resource = "*"
       Condition = {
         StringEquals = {
-          "aws:ResourceTag/Environment" = "aws-demo"
-          "aws:ResourceTag/Project"     = local.project
+          "aws:ResourceTag/environment" = "aws-demo"
+          "aws:ResourceTag/project"     = local.project
         }
       }
     },
