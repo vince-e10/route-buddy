@@ -17,6 +17,8 @@ docs-live-in-the-vault convention - we work on them here):
   settled; read it before implementing, don't re-litigate.
 - `docs/contracts.md` - frozen cross-component interfaces; implementation must match them.
 - `docs/execution-plan.md` - dependency waves and links to implementation issues.
+- `docs/project-retrospective-and-production-readiness.md` - project closure and production
+  boundary
 - `docs/rfc.md` - live status: goal, status, next step, open questions, dated log
 
 This file is how to work in the repo.
@@ -44,12 +46,14 @@ test behavior in proportion to risk, and leave `main` releasable.
 - Before delivery, verify every new path follows this convention. Naming consistency is a
   required acceptance check, not optional cleanup.
 
-## Status: MVP IMPLEMENTED (RB-107 release gate)
+## Status: MVP EXERCISE CONCLUDED
 
 The complete MVP is implemented: Compose and Terraform foundation, mock Uber lifecycle, DynamoDB
 repositories, provider and geocoder adapters, agent confirmation gate, WebSocket UI, and release
 hardening. `scripts/e2e.sh` runs two cold deterministic verification passes in CI and verifies the
 public flow, action log, PII redaction, security headers, non-root containers, and port exposure.
+The exercise concluded on 2026-07-28. Production issues RB-114 through RB-122 remain open and
+deferred; the repository does not claim live AWS or real Uber production readiness.
 
 ## Intended shape
 

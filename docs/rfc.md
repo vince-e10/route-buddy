@@ -3,32 +3,43 @@
 _Repos touched:_ [vince-e10/route-buddy](https://github.com/vince-e10/route-buddy)
 _Issues:_ [RB-100 #10](https://github.com/vince-e10/route-buddy/issues/10), plus
 [RB-101 #2](https://github.com/vince-e10/route-buddy/issues/2) through
-[RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8), and post-MVP reliability work
+[RB-107 #8](https://github.com/vince-e10/route-buddy/issues/8), post-MVP reliability work
 [RB-108 #20](https://github.com/vince-e10/route-buddy/issues/20) through
-[RB-113 #25](https://github.com/vince-e10/route-buddy/issues/25)
+[RB-113 #25](https://github.com/vince-e10/route-buddy/issues/25), and the deferred production
+roadmap [RB-114 #26](https://github.com/vince-e10/route-buddy/issues/26) through
+[RB-122 #34](https://github.com/vince-e10/route-buddy/issues/34)
 _Docs:_ all project docs live in this `docs/` folder alongside the code (owner decision
 2026-07-25, overriding the docs-in-vault convention): `high-level-requirements.md` (spec),
 `design.md` (approved RFC), `contracts.md` (normative interfaces), `execution-plan.md` (delivery),
-this file (live status).
+`project-retrospective-and-production-readiness.md` (closure), this file (live status).
 
 ## Current State
-_Last updated: 2026-07-27_
+_Last updated: 2026-07-28_
 
 **Goal:** AI agent that books and manages ride-hailing trips end to end (SG market, mocked Uber Guest Rides provider, FastAPI, DynamoDB on an AWS-compatible local emulator, Terraform IaC), with structurally enforced confirmation gate, append-only action log, and grounded answers.
-**Status:** MVP implemented. RB-113 adds the protected manual AWS demo deployment contract with
-bootstrap-owned secret metadata, immutable images, exact-plan apply, diagnostics, and post-apply
-drift rejection. The project has no AWS account or `aws-demo` Environment, so first-run evidence
-remains pending.
-**Next step:** Merge RB-113, create the protected `aws-demo` Environment with its documented
-variables and `main` branch restriction, run bootstrap, populate the secret out of band, then
-record the first manual-dispatch evidence.
-**Open questions:**
-- OneMap token refresh flow (token registered, ~3-day expiry) - implementor task, not a blocker
-- Action-log retention policy - production decision
-- Uber partner approval timeline - business, needed only for real-provider swap
-- Whether the project will ever open an AWS account and perform the deferred live-AWS path.
+**Status:** MVP exercise concluded. RB-113 is merged and the local/mock MVP plus protected AWS demo
+deployment contract are implemented and offline-validated. The project has no AWS account,
+`aws-demo` Environment, live deployment evidence, or real Uber integration; it makes no
+production-readiness claim.
+**Next step:** None scheduled. Resume only through an explicit owner decision to pursue the
+deferred production roadmap in RB-114 through RB-122.
+**Deferred production decisions:**
+- Action-log retention and privacy policy
+- Uber partner approval and real-provider timeline
+- Whether to open an AWS account and run the deferred live-AWS path
+- Whether user evidence justifies a public multi-user service
 
 ## Log
+
+### 2026-07-28 - MVP exercise concluded
+- Added the
+  [project retrospective and production-readiness assessment](project-retrospective-and-production-readiness.md)
+  through [documentation issue #41](https://github.com/vince-e10/route-buddy/issues/41).
+- Accepted the local/mock MVP, safety invariants, reliability hardening, and offline-validated AWS
+  demo contract as the completed exercise.
+- Corrected the status after [RB-113 PR #40](https://github.com/vince-e10/route-buddy/pull/40)
+  merged; no live AWS or real Uber evidence is claimed.
+- Left RB-114 through RB-122 open as a deferred production roadmap with no active next step.
 
 ### 2026-07-27 - RB-113 manual AWS demo deployment implemented locally
 - Added the manual, main-current, Environment-protected deployment workflow. Preflight repeats

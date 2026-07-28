@@ -141,8 +141,8 @@ deployment diagnostics. Roll back by reverting `main` and dispatching again. An 
 from an allowed CIDR remains required because ECS Exec is disabled.
 
 The project currently has no AWS account or protected Environment, so live deployment evidence is
-pending. After merge, record the first manual-dispatch evidence rather than treating offline tests
-as a live deployment.
+pending. If the owner explicitly resumes the AWS path, record the first manual-dispatch evidence
+rather than treating offline tests as a live deployment.
 
 ## Architecture and invariants
 
@@ -331,4 +331,5 @@ permissions boundaries, or destroy the state bucket and ECR repositories.
 - [Approved design](docs/design.md)
 - [Frozen contracts](docs/contracts.md)
 - [Execution plan](docs/execution-plan.md)
+- [Project retrospective and production readiness](docs/project-retrospective-and-production-readiness.md)
 - [Live RFC status](docs/rfc.md)
